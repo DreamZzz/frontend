@@ -99,7 +99,7 @@ const SearchScreen = () => {
           placeholder="Search posts, users, or tags..."
           value={searchQuery}
           onChangeText={handleSearch}
-          autoCapitalize="none"
+          autoCapitalize="sentences"
         />
         {searchQuery ? (
           <TouchableOpacity onPress={() => handleSearch('')}>

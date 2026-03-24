@@ -1,7 +1,6 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const API_BASE_URL = 'http://localhost:8080/api';
+import { API_BASE_URL } from '../config/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -77,14 +76,37 @@ export const commentAPI = {
   getAllPostComments: (postId) =>
     api.get(`/comments/post/${postId}/all`),
   
-  createComment: (comment, postId, userId) =>
-    api.post('/comments', comment, { params: { postId, userId } }),
+  createComment: (comment, postId, userId, parentId = null) => {
+    // 确保参数类型正确（后端期望Long类型）
+    const params = { 
+      postId: Number(postId), 
+      userId: Number(userId) 
+    };
+    if (parentId !== null && parentId !== undefined) {
+      params.parentId = Number(parentId);
+    }
+    console.log('Creating comment with data:', comment);
+    console.log('Params:', params);
+    console.log('Full URL will be:', `/comments?postId=${params.postId}&userId=${params.userId}${params.parentId ? `&parentId=${params.parentId}` : ''}`);
+    
+    return api.post('/comments', comment, { 
+      params,
+      timeout: 30000, // 增加超时时间到30秒
+      validateStatus: (status) => {
+        // 接受 2xx 状态码，特别是 201 Created
+        return status >= 200 && status < 300;
+      }
+    });
+  },
   
   updateComment: (id, updatedComment, userId) =>
     api.put(`/comments/${id}`, updatedComment, { params: { userId } }),
   
   deleteComment: (id, userId) =>
     api.delete(`/comments/${id}`, { params: { userId } }),
+  
+  getCommentReplies: (commentId) =>
+    api.get(`/comments/${commentId}/replies`),
 };
 
 export const uploadAPI = {
@@ -120,6 +142,14 @@ export const userAPI = {
   
   updateProfile: (id, userData) =>
     api.put(`/users/${id}`, userData),
+};
+
+export const likeAPI = {
+  likePost: (postId) =>
+    api.post(`/posts/${postId}/like`),
+  
+  likeComment: (commentId) =>
+    api.post(`/comments/${commentId}/like`),
 };
 
 export default api;

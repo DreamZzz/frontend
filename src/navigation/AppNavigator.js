@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -11,33 +11,58 @@ import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import CreatePostScreen from '../screens/CreatePostScreen';
 import ProfileScreen from '../screens/ProfileScreen';
-import SearchScreen from '../screens/SearchScreen';
+import EditProfileScreen from '../screens/EditProfileScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
+const navigationTheme = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    background: '#F8F9FA',
+    card: '#FFFFFF',
+    border: '#E9ECEF',
+    primary: '#6C8EBF',
+    text: '#212529',
+  },
+};
+
+const getTabIconName = (routeName, focused) => {
+  if (routeName === 'Home') {
+    return focused ? 'home' : 'home-outline';
+  }
+
+  if (routeName === 'Search') {
+    return focused ? 'search' : 'search-outline';
+  }
+
+  if (routeName === 'Create') {
+    return focused ? 'add-circle' : 'add-circle-outline';
+  }
+
+  return focused ? 'person' : 'person-outline';
+};
+
+const homeTabScreenOptions = ({ route }) => ({
+  tabBarIcon: ({ focused, color, size }) => (
+    <Icon name={getTabIconName(route.name, focused)} size={size} color={color} />
+  ),
+  tabBarActiveTintColor: '#6C8EBF',
+  tabBarInactiveTintColor: 'gray',
+  tabBarStyle: {
+    backgroundColor: '#FFFFFF',
+    borderTopColor: '#E9ECEF',
+  },
+  sceneStyle: {
+    backgroundColor: '#F8F9FA',
+  },
+  headerShown: false,
+});
+
 function HomeTabs() {
   return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        tabBarIcon: ({ focused, color, size }) => {
-          let iconName;
-          if (route.name === 'Home') {
-            iconName = focused ? 'home' : 'home-outline';
-          } else if (route.name === 'Search') {
-            iconName = focused ? 'search' : 'search-outline';
-          } else if (route.name === 'Create') {
-            iconName = focused ? 'add-circle' : 'add-circle-outline';
-          } else if (route.name === 'Profile') {
-            iconName = focused ? 'person' : 'person-outline';
-          }
-          return <Icon name={iconName} size={size} color={color} />;
-        },
-         tabBarActiveTintColor: '#6C8EBF',
-        tabBarInactiveTintColor: 'gray',
-        headerShown: false,
-      })}
-    >
+    <Tab.Navigator screenOptions={homeTabScreenOptions}>
       <Tab.Screen 
         name="Home" 
         component={HomeScreen} 
@@ -65,8 +90,23 @@ function HomeTabs() {
 
 export default function AppNavigator() {
   return (
-    <NavigationContainer>
-      <Stack.Navigator initialRouteName="HomeTabs">
+    <NavigationContainer theme={navigationTheme}>
+      <Stack.Navigator
+        initialRouteName="HomeTabs"
+        screenOptions={{
+          headerStyle: {
+            backgroundColor: '#FFFFFF',
+          },
+          headerTintColor: '#212529',
+          headerTitleStyle: {
+            color: '#212529',
+            fontWeight: '700',
+          },
+          contentStyle: {
+            backgroundColor: '#F8F9FA',
+          },
+        }}
+      >
         <Stack.Screen 
           name="HomeTabs" 
           component={HomeTabs} 
@@ -75,17 +115,38 @@ export default function AppNavigator() {
         <Stack.Screen 
           name="Detail" 
           component={DetailScreen}
-          options={{ title: '帖子详情' }}
+          options={{ 
+            title: '帖子详情',
+            headerBackTitle: '返回',
+            headerBackTitleVisible: true
+          }}
         />
         <Stack.Screen 
           name="Login" 
           component={LoginScreen}
-          options={{ title: '登录' }}
+          options={{ 
+            title: '登录',
+            headerBackTitle: '返回',
+            headerBackTitleVisible: true
+          }}
         />
         <Stack.Screen 
           name="Register" 
           component={RegisterScreen}
-          options={{ title: '注册' }}
+          options={{ 
+            title: '注册',
+            headerBackTitle: '返回',
+            headerBackTitleVisible: true
+          }}
+        />
+        <Stack.Screen
+          name="EditProfile"
+          component={EditProfileScreen}
+          options={{
+            title: '编辑资料',
+            headerBackTitle: '返回',
+            headerBackTitleVisible: true
+          }}
         />
       </Stack.Navigator>
     </NavigationContainer>

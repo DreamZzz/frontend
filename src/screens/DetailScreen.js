@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -9,11 +9,20 @@ import {
   TextInput,
   FlatList,
   Dimensions,
-  ActivityIndicator
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
+  Keyboard,
+  Platform,
 } from 'react-native';
+import { buildImageUrl } from '../utils/imageUrl';
 import Swiper from 'react-native-swiper';
 import Icon from 'react-native-vector-icons/Ionicons';
-import axios from 'axios';
+import Video from 'react-native-video';
+import { useAuth } from '../context/AuthContext';
+import { commentAPI, likeAPI, postAPI } from '../services/api';
+import { isVideoUrl } from '../utils/media';
 
 const { width } = Dimensions.get('window');
 
@@ -22,9 +31,35 @@ const DetailScreen = ({ route, navigation }) => {
   const [post, setPost] = useState(null);
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [newComment, setNewComment] = useState('');
+  const [replyingToCommentId, setReplyingToCommentId] = useState(null);
+  const [replyingToUsername, setReplyingToUsername] = useState('');
+  const [activeMediaIndex, setActiveMediaIndex] = useState(0);
+  const { user } = useAuth();
+  const commentInputRef = useRef(null);
+  const commentDraftRef = useRef('');
+  const scrollViewRef = useRef(null);
 
-  const API_BASE_URL = 'http://localhost:8080/api';
+  const fetchPostDetails = useCallback(async () => {
+    try {
+      const response = await postAPI.getPostById(postId);
+      setPost(response.data);
+    } catch (error) {
+      console.error('Error fetching post:', error);
+      setPost(generateMockPost());
+    }
+  }, [postId]);
+
+  const fetchComments = useCallback(async () => {
+    try {
+      const response = await commentAPI.getAllPostComments(postId);
+      setComments(response.data);
+    } catch (error) {
+      console.error('Error fetching comments:', error);
+      setComments(generateMockComments());
+    } finally {
+      setLoading(false);
+    }
+  }, [postId]);
 
   useEffect(() => {
     if (!postId) {
@@ -34,53 +69,155 @@ const DetailScreen = ({ route, navigation }) => {
     }
     fetchPostDetails();
     fetchComments();
-  }, [postId]);
-
-  const fetchPostDetails = async () => {
-    try {
-      const response = await axios.get(`${API_BASE_URL}/posts/${postId}`);
-      setPost(response.data);
-    } catch (error) {
-      console.error('Error fetching post:', error);
-      setPost(generateMockPost());
-    }
-  };
-
-  const fetchComments = async () => {
-    try {
-      const response = await axios.get(`${API_BASE_URL}/comments/post/${postId}/all`);
-      setComments(response.data);
-    } catch (error) {
-      console.error('Error fetching comments:', error);
-      setComments(generateMockComments());
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [postId, fetchPostDetails, fetchComments]);
 
   const handleAddComment = async () => {
-    if (!newComment.trim()) return;
+    const trimmedComment = commentDraftRef.current.trim();
+    if (!trimmedComment) return;
     
-    // In a real app, you would send this to the API
-    const mockComment = {
-      id: Date.now(),
-      content: newComment,
-      username: 'current_user',
-      userAvatarUrl: 'https://i.pravatar.cc/150?img=5',
-      createdAt: new Date().toISOString(),
-      likeCount: 0,
-    };
+    if (!user || !user.id) {
+      Alert.alert('需要登录', '请先登录再发表评论');
+      navigation.navigate('Login');
+      return;
+    }
     
-    setComments([mockComment, ...comments]);
-    setNewComment('');
+    if (!postId) {
+      Alert.alert('错误', '无法确定帖子ID');
+      return;
+    }
+    
+    console.log('Adding comment:', {
+      content: trimmedComment,
+      postId,
+      userId: user.id,
+      parentId: replyingToCommentId
+    });
+    
+    try {
+      const commentData = {
+        content: trimmedComment
+      };
+      
+      // 如果有正在回复的评论，传入parentId
+      const parentId = replyingToCommentId;
+      console.log('Calling commentAPI.createComment with:', { commentData, postId, userId: user.id, parentId });
+      const response = await commentAPI.createComment(commentData, postId, user.id, parentId);
+      console.log('Comment creation response:', response.data);
+      
+      // Clear input and reply state
+      commentDraftRef.current = '';
+      commentInputRef.current?.clear();
+      setReplyingToCommentId(null);
+      setReplyingToUsername('');
+      
+      // Refresh comments to show the new one
+      fetchComments();
+     } catch (error) {
+       console.error('Error adding comment:', error);
+       console.error('Error response:', error.response?.data);
+       console.error('Error status:', error.response?.status);
+       console.error('Error config:', {
+         url: error.config?.url,
+         method: error.config?.method,
+         data: error.config?.data,
+         params: error.config?.params
+       });
+       
+       // 特殊处理：如果状态码是201 Created，但请求还是进入catch块
+       // 这可能是因为其他错误（如网络错误、JSON解析错误等）
+       if (error.response?.status === 201) {
+         console.log('Received 201 Created status but request threw error. This may be a false positive.');
+         // 数据可能已经保存成功，刷新评论列表
+        fetchComments();
+        // 清空输入框
+        commentDraftRef.current = '';
+        commentInputRef.current?.clear();
+        setReplyingToCommentId(null);
+        setReplyingToUsername('');
+        return; // 不显示错误弹窗
+       }
+       
+       // 显示具体错误信息给用户
+       let errorMessage = '评论发布失败，请重试';
+       if (error.response?.data?.message) {
+         errorMessage = error.response.data.message;
+       } else if (error.response?.status === 500) {
+         errorMessage = '服务器内部错误，请稍后重试';
+       } else if (error.response?.status === 400) {
+         errorMessage = '请求参数错误，请检查';
+       } else if (error.response?.status === 401) {
+         errorMessage = '请先登录';
+         navigation.navigate('Login');
+       } else if (error.message) {
+         errorMessage = `错误: ${error.message}`;
+       }
+       
+       Alert.alert('评论失败', errorMessage);
+     }
   };
 
-  const handleLike = () => {
-    if (post) {
+  const handleStartReply = (commentId, username) => {
+    if (!user || !user.id) {
+      Alert.alert('需要登录', '请先登录再回复评论');
+      navigation.navigate('Login');
+      return;
+    }
+    
+    setReplyingToCommentId(commentId);
+    setReplyingToUsername(username);
+    const replyText = `@${username} `;
+    commentDraftRef.current = replyText;
+    commentInputRef.current?.setNativeProps({ text: replyText });
+  };
+
+  const handleCancelReply = () => {
+    setReplyingToCommentId(null);
+    setReplyingToUsername('');
+    commentDraftRef.current = '';
+    commentInputRef.current?.clear();
+  };
+
+  const handleCommentInputFocus = () => {
+    requestAnimationFrame(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    });
+  };
+
+  const handleLike = async () => {
+    if (!post) return;
+    
+    try {
+      const response = await likeAPI.likePost(post.id);
+      setPost(response.data);
+    } catch (error) {
+      console.error('Error liking post:', error);
+      // 即使API失败，本地更新以保持响应性
       setPost({
         ...post,
-        likeCount: post.likeCount + 1,
+        likeCount: (post.likeCount || 0) + 1,
       });
+    }
+  };
+
+  const handleLikeComment = async (commentId) => {
+    try {
+      const response = await likeAPI.likeComment(commentId);
+      // 更新评论列表中的点赞数
+      setComments(prevComments =>
+        prevComments.map(comment =>
+          comment.id === commentId ? response.data : comment
+        )
+      );
+    } catch (error) {
+      console.error('Error liking comment:', error);
+      // 即使API失败，本地更新以保持响应性
+      setComments(prevComments =>
+        prevComments.map(comment =>
+          comment.id === commentId 
+            ? { ...comment, likeCount: (comment.likeCount || 0) + 1 }
+            : comment
+        )
+      );
     }
   };
 
@@ -93,7 +230,20 @@ const DetailScreen = ({ route, navigation }) => {
   }
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={88}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.container}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
       {/* Author Info */}
       <View style={styles.authorContainer}>
         <Image
@@ -116,15 +266,34 @@ const DetailScreen = ({ route, navigation }) => {
             showsButtons={false}
             showsPagination
             dotColor="rgba(255,255,255,0.5)"
-             activeDotColor="#6C8EBF"
+            activeDotColor="#6C8EBF"
+            onIndexChanged={setActiveMediaIndex}
           >
             {post.imageUrls.map((url, index) => (
               <View key={index} style={styles.slide}>
-                <Image
-                  source={{ uri: url || 'https://via.placeholder.com/400' }}
-                  style={styles.slideImage}
-                  resizeMode="cover"
-                />
+                {isVideoUrl(url) ? (
+                  <View style={styles.videoSlide}>
+                    <Video
+                      source={{ uri: buildImageUrl(url) || url }}
+                      style={styles.slideVideo}
+                      controls
+                      paused={activeMediaIndex !== index}
+                      resizeMode="cover"
+                      repeat={false}
+                      playInBackground={false}
+                      ignoreSilentSwitch="ignore"
+                    />
+                  </View>
+                ) : (
+                  <Image
+                    source={{ uri: buildImageUrl(url) || 'https://via.placeholder.com/400' }}
+                    style={styles.slideImage}
+                    resizeMode="cover"
+                    onError={(e) => {
+                      console.error(`Failed to load image ${url}:`, e.nativeEvent.error);
+                    }}
+                  />
+                )}
               </View>
             ))}
           </Swiper>
@@ -156,19 +325,45 @@ const DetailScreen = ({ route, navigation }) => {
       <View style={styles.commentsContainer}>
          <Text style={styles.commentsTitle}>评论 ({comments.length})</Text>
         
+        {/* Reply Indicator */}
+        {replyingToCommentId && (
+          <View style={styles.replyIndicator}>
+            <Text style={styles.replyIndicatorText}>
+              正在回复 @{replyingToUsername}
+            </Text>
+            <TouchableOpacity onPress={handleCancelReply}>
+              <Icon name="close-circle" size={18} color="#6C757D" />
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Add Comment */}
         <View style={styles.addCommentContainer}>
-          <TextInput
-            style={styles.commentInput}
-             placeholder="添加评论..."
-            value={newComment}
-            onChangeText={setNewComment}
-            multiline
-          />
+           <TextInput
+             ref={commentInputRef}
+             style={styles.commentInput}
+              placeholder={replyingToCommentId ? `回复 @${replyingToUsername}...` : "添加评论..."}
+             defaultValue=""
+             onChangeText={(text) => {
+               commentDraftRef.current = text;
+             }}
+             onFocus={handleCommentInputFocus}
+             multiline
+             autoCorrect={false}
+             spellCheck={false}
+             autoComplete="off"
+             textContentType="none"
+             keyboardType="default"
+             scrollEnabled
+           />
           <TouchableOpacity style={styles.sendButton} onPress={handleAddComment}>
             <Icon name="send" size={20} color="white" />
           </TouchableOpacity>
         </View>
+
+        <TouchableOpacity style={styles.dismissKeyboardButton} onPress={Keyboard.dismiss}>
+          <Text style={styles.dismissKeyboardText}>收起键盘</Text>
+        </TouchableOpacity>
 
         {/* Comments List */}
         <FlatList
@@ -187,15 +382,21 @@ const DetailScreen = ({ route, navigation }) => {
                   </Text>
                 </View>
                 <Text style={styles.commentText}>{item.content}</Text>
-                <View style={styles.commentActions}>
-                  <TouchableOpacity style={styles.commentAction}>
-                    <Icon name="heart-outline" size={14} color="#6C757D" />
-                    <Text style={styles.commentActionText}>{item.likeCount || 0}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.commentAction}>
-                     <Text style={styles.commentActionText}>回复</Text>
-                  </TouchableOpacity>
-                </View>
+                 <View style={styles.commentActions}>
+                   <TouchableOpacity 
+                     style={styles.commentAction}
+                     onPress={() => handleLikeComment(item.id)}
+                   >
+                     <Icon name="heart-outline" size={14} color="#6C757D" />
+                     <Text style={styles.commentActionText}>{item.likeCount || 0}</Text>
+                   </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={styles.commentAction}
+                      onPress={() => handleStartReply(item.id, item.username)}
+                    >
+                       <Text style={styles.commentActionText}>回复</Text>
+                    </TouchableOpacity>
+                 </View>
               </View>
             </View>
           )}
@@ -203,7 +404,9 @@ const DetailScreen = ({ route, navigation }) => {
           scrollEnabled={false}
         />
       </View>
-    </ScrollView>
+        </ScrollView>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -255,6 +458,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8F9FA',
   },
+  scrollContent: {
+    paddingBottom: 32,
+  },
   centerContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -304,6 +510,15 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  slideVideo: {
+    width: '100%',
+    height: '100%',
+  },
+  videoSlide: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000000',
+  },
   contentContainer: {
     padding: 15,
     backgroundColor: 'white',
@@ -343,6 +558,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#212529',
     marginBottom: 15,
+  },
+  dismissKeyboardButton: {
+    alignSelf: 'flex-end',
+    marginBottom: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#F1F3F5',
+  },
+  dismissKeyboardText: {
+    color: '#6C757D',
+    fontSize: 12,
+    fontWeight: '600',
   },
   addCommentContainer: {
     flexDirection: 'row',
@@ -417,6 +645,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6C757D',
     marginLeft: 4,
+  },
+  replyIndicator: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#E7F5FF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  replyIndicatorText: {
+    fontSize: 14,
+    color: '#0A58CA',
+    fontWeight: '500',
   },
 });
 

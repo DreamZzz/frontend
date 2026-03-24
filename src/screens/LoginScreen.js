@@ -9,14 +9,15 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import axios from 'axios';
+import { useAuth } from '../context/AuthContext';
+import { authAPI } from '../services/api';
+import { API_BASE_URL } from '../config/api';
 
 const LoginScreen = ({ navigation }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-
-  const API_BASE_URL = 'http://localhost:8080/api';
+  const { login } = useAuth();
 
   const handleLogin = async () => {
     if (!username.trim() || !password.trim()) {
@@ -26,20 +27,41 @@ const LoginScreen = ({ navigation }) => {
 
     setLoading(true);
     try {
-      const response = await axios.post(`${API_BASE_URL}/auth/login`, {
-        username,
-        password,
-      });
+      const response = await authAPI.login(username, password);
       
-      // Store token (in real app, use AsyncStorage or secure store)
-      const token = response.data.token;
+      const { token, id, username: responseUsername, displayName, email, avatarUrl } = response.data;
       console.log('Login successful, token:', token);
+      
+      // Create user data object
+      const userData = {
+        id,
+        username: responseUsername,
+        displayName,
+        email,
+        avatarUrl
+      };
+      
+      // Store token and user data using AuthContext
+      await login(userData, token);
       
       // Navigate to home
       navigation.navigate('HomeTabs');
     } catch (error) {
       console.error('Login error:', error);
-       Alert.alert('登录失败', '用户名或密码错误');
+      if (!error.response) {
+        const details = __DEV__
+          ? `无法连接到后端服务\n请求地址: ${API_BASE_URL}\n错误信息: ${error.message || 'unknown error'}`
+          : '无法连接到后端服务，请确认后端和数据库已启动';
+        Alert.alert('登录失败', details);
+      } else if (error.response.status === 401) {
+        Alert.alert('登录失败', '用户名或密码错误');
+      } else {
+        const message =
+          typeof error.response?.data === 'string'
+            ? error.response.data
+            : error.response?.data?.message || `服务器异常，请稍后重试（${error.response?.status}）`;
+        Alert.alert('登录失败', message);
+      }
     } finally {
       setLoading(false);
     }

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   StyleSheet,
@@ -10,7 +11,11 @@ import {
   RefreshControl,
   ActivityIndicator
 } from 'react-native';
-import axios from 'axios';
+import Icon from 'react-native-vector-icons/Ionicons';
+import { buildImageUrl } from '../utils/imageUrl';
+import { postAPI } from '../services/api';
+import { isVideoUrl } from '../utils/media';
+import VideoThumbnail from '../components/VideoThumbnail';
 
 const { width } = Dimensions.get('window');
 const itemWidth = (width - 30) / 2; // Two columns with padding
@@ -22,11 +27,9 @@ const HomeScreen = ({ navigation }) => {
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
 
-  const API_BASE_URL = 'http://localhost:8080/api';
-
   const fetchPosts = async (pageNum = 0) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/posts?page=${pageNum}&size=10`);
+      const response = await postAPI.getAllPosts(pageNum, 10);
       if (pageNum === 0) {
         setPosts(response.data.content || []);
       } else {
@@ -49,6 +52,12 @@ const HomeScreen = ({ navigation }) => {
     fetchPosts();
   }, []);
 
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchPosts();
+    }, [])
+  );
+
   const onRefresh = () => {
     setRefreshing(true);
     setPage(0);
@@ -69,19 +78,35 @@ const HomeScreen = ({ navigation }) => {
       onPress={() => navigation.navigate('Detail', { postId: item.id })}
     >
       {item.imageUrls && item.imageUrls.length > 0 && (
-        <Image
-          source={{ uri: item.imageUrls[0] || 'https://via.placeholder.com/300' }}
-          style={styles.postImage}
-          resizeMode="cover"
-        />
+        isVideoUrl(item.imageUrls[0]) ? (
+          <VideoThumbnail
+            url={item.imageUrls[0]}
+            style={styles.postImage}
+            imageStyle={styles.postImage}
+            badgePosition="topRight"
+            badgeSize={26}
+          />
+        ) : (
+          <Image
+            source={{ uri: buildImageUrl(item.imageUrls[0]) || 'https://via.placeholder.com/300' }}
+            style={styles.postImage}
+            resizeMode="cover"
+          />
+        )
       )}
       <View style={styles.postInfo}>
         <Text style={styles.username}>@{item.username}</Text>
         <Text style={styles.content} numberOfLines={2}>{item.content}</Text>
-        <View style={styles.stats}>
-          <Text style={styles.statText}>❤️ {item.likeCount || 0}</Text>
-          <Text style={styles.statText}>💬 {item.commentCount || 0}</Text>
-        </View>
+         <View style={styles.stats}>
+           <View style={styles.statItem}>
+             <Icon name="heart-outline" size={14} color="#D99A9A" />
+             <Text style={styles.statText}> {item.likeCount || 0}</Text>
+           </View>
+           <View style={styles.statItem}>
+             <Icon name="chatbubble-outline" size={14} color="#6C8EBF" />
+             <Text style={styles.statText}> {item.commentCount || 0}</Text>
+           </View>
+         </View>
       </View>
     </TouchableOpacity>
   );
@@ -193,9 +218,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  statItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   statText: {
     fontSize: 11,
     color: '#ADB5BD',
+    marginLeft: 2,
   },
   footer: {
     paddingVertical: 20,

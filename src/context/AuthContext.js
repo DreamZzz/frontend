@@ -61,8 +61,9 @@ export const AuthProvider = ({ children }) => {
 
   const updateUser = async (userData) => {
     try {
-      await AsyncStorage.setItem('user', JSON.stringify(userData));
-      setUser(userData);
+      const nextUser = { ...(user || {}), ...(userData || {}) };
+      await AsyncStorage.setItem('user', JSON.stringify(nextUser));
+      setUser(nextUser);
     } catch (error) {
       console.error('Error updating user:', error);
     }

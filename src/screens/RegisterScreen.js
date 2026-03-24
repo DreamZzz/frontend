@@ -10,7 +10,8 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
-import axios from 'axios';
+import { authAPI } from '../services/api';
+import { API_BASE_URL } from '../config/api';
 
 const RegisterScreen = ({ navigation }) => {
   const [username, setUsername] = useState('');
@@ -18,8 +19,6 @@ const RegisterScreen = ({ navigation }) => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
-
-  const API_BASE_URL = 'http://localhost:8080/api';
 
   const handleRegister = async () => {
     if (!username.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
@@ -39,17 +38,24 @@ const RegisterScreen = ({ navigation }) => {
 
     setLoading(true);
     try {
-      const response = await axios.post(`${API_BASE_URL}/auth/register`, {
-        username,
-        email,
-        password,
-      });
+      await authAPI.register(username, email, password);
       
        Alert.alert('成功', '账户创建成功！请登录。');
       navigation.navigate('Login');
     } catch (error) {
       console.error('Registration error:', error);
-       Alert.alert('注册失败', error.response?.data || '发生错误');
+      if (!error.response) {
+        const details = __DEV__
+          ? `无法连接到后端服务\n请求地址: ${API_BASE_URL}\n错误信息: ${error.message || 'unknown error'}`
+          : '无法连接到后端服务，请确认后端和数据库已启动';
+        Alert.alert('注册失败', details);
+      } else {
+        const message =
+          typeof error.response?.data === 'string'
+            ? error.response.data
+            : error.response?.data?.message || `发生错误（${error.response?.status}）`;
+        Alert.alert('注册失败', message);
+      }
     } finally {
       setLoading(false);
     }
