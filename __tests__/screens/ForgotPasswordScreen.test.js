@@ -27,9 +27,10 @@ describe('ForgotPasswordScreen', () => {
   });
 
   const pressButtonByLabel = async (renderer, label) => {
-    const button = renderer.root
-      .findAllByType(TouchableOpacity)
-      .find((node) => node.props.children?.some?.((child) => child?.props?.children === label));
+    const button = renderer.root.findAllByType(TouchableOpacity).find((node) => {
+      const children = Array.isArray(node.props.children) ? node.props.children : [node.props.children];
+      return children.some((child) => child?.props?.children === label);
+    });
 
     expect(button).toBeTruthy();
 
