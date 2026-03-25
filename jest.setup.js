@@ -43,3 +43,17 @@ jest.mock('react-native-create-thumbnail', () => ({
     height: 100,
   })),
 }));
+
+jest.mock('react-native-share', () => ({
+  open: jest.fn(async () => undefined),
+}));
+
+jest.mock('@react-native-hero/wechat', () => ({
+  init: jest.fn(async () => undefined),
+  isInstalled: jest.fn(async () => ({ installed: true })),
+  shareText: jest.fn(async () => undefined),
+  SCENE: {
+    SESSION: 0,
+    TIMELINE: 1,
+  },
+}));

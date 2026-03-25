@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Alert,
   Keyboard,
@@ -24,6 +24,7 @@ const ForgotPasswordScreen = ({ navigation }) => {
   const [sending, setSending] = useState(false);
   const [resetting, setResetting] = useState(false);
   const headerHeight = useHeaderHeight();
+  const codeInputRef = useRef(null);
 
   const handleSendCode = async () => {
     if (!email.trim()) {
@@ -34,7 +35,12 @@ const ForgotPasswordScreen = ({ navigation }) => {
     setSending(true);
     try {
       const response = await authAPI.forgotPassword(email.trim());
-      Alert.alert('验证码已发送', response.data?.message || '请查收邮箱');
+      Alert.alert('验证码已发送', response.data?.message || '请查收邮箱', [
+        {
+          text: '确定',
+          onPress: () => codeInputRef.current?.focus?.(),
+        },
+      ]);
     } catch (error) {
       console.error('Forgot password error:', error);
       Alert.alert('发送失败', getRequestErrorMessage(error, '发送验证码失败'));
@@ -94,6 +100,9 @@ const ForgotPasswordScreen = ({ navigation }) => {
               onChangeText={setEmail}
               keyboardType="email-address"
               autoCapitalize="none"
+              autoComplete="email"
+              textContentType="emailAddress"
+              autoCorrect={false}
             />
           </View>
 
@@ -112,6 +121,11 @@ const ForgotPasswordScreen = ({ navigation }) => {
               placeholder="请输入邮箱中的验证码"
               value={code}
               onChangeText={setCode}
+              ref={codeInputRef}
+              keyboardType="number-pad"
+              autoComplete="one-time-code"
+              textContentType="oneTimeCode"
+              maxLength={6}
             />
           </View>
 
@@ -123,6 +137,9 @@ const ForgotPasswordScreen = ({ navigation }) => {
               value={newPassword}
               onChangeText={setNewPassword}
               secureTextEntry
+              autoComplete="new-password"
+              textContentType="newPassword"
+              autoCorrect={false}
             />
           </View>
 
@@ -134,6 +151,9 @@ const ForgotPasswordScreen = ({ navigation }) => {
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               secureTextEntry
+              autoComplete="new-password"
+              textContentType="newPassword"
+              autoCorrect={false}
             />
           </View>
 

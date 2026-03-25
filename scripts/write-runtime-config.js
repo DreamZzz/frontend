@@ -5,6 +5,7 @@ const environment = process.argv[2] || 'local';
 const apiBaseUrl = process.argv[3];
 const proxyTarget = process.argv[4] || '';
 const wechatAppId = process.env.APP_SHARE_WECHAT_APP_ID || '';
+const wechatUniversalLink = process.env.APP_SHARE_WECHAT_UNIVERSAL_LINK || '';
 
 if (!apiBaseUrl) {
   console.error('Usage: node scripts/write-runtime-config.js <environment> <apiBaseUrl> [proxyTarget]');
@@ -17,6 +18,7 @@ const runtimeConfig = {
   apiBaseUrl,
   proxyTarget,
   wechatAppId,
+  wechatUniversalLink,
 };
 
 // The generated file is plain JS so Metro, Jest, and Xcode bundle steps can all

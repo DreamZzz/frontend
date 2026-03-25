@@ -22,6 +22,8 @@ import { useAuth } from '../context/AuthContext';
 import { commentAPI, likeAPI, postAPI } from '../services/api';
 import UserAvatar from '../components/UserAvatar';
 import MediaCarousel from '../components/MediaCarousel';
+import { sharePost } from '../utils/sharePost';
+import { getWechatShareStatus } from '../utils/wechatShare';
 
 const { width } = Dimensions.get('window');
 
@@ -221,6 +223,44 @@ const DetailScreen = ({ route, navigation }) => {
     }
   };
 
+  const handleShareTarget = async (target) => {
+    if (!post) {
+      return;
+    }
+
+    try {
+      await sharePost(post, target);
+    } catch (error) {
+      console.error('Error sharing post:', error);
+
+      if (error.code === 'WECHAT_UNAVAILABLE' || error.code === 'WECHAT_NOT_INSTALLED') {
+        Alert.alert('微信分享不可用', error.message);
+        return;
+      }
+
+      Alert.alert('分享失败', error.message || '分享失败，请稍后重试');
+    }
+  };
+
+  const handleSharePress = async () => {
+    const wechatStatus = getWechatShareStatus();
+    const statusMessage = wechatStatus.available
+      ? '请选择分享方式'
+      : `${wechatStatus.reason}\n\n系统分享仍然可用。`;
+
+    const actions = [
+      { text: '系统分享', onPress: () => handleShareTarget('system') },
+      { text: '微信好友', onPress: () => handleShareTarget('wechat') },
+      { text: '朋友圈', onPress: () => handleShareTarget('moments') },
+    ];
+
+    if (Platform.OS === 'ios') {
+      actions.push({ text: '取消', style: 'cancel' });
+    }
+
+    Alert.alert('分享帖子', statusMessage, actions);
+  };
+
   if (loading || !post) {
     return (
       <View style={styles.centerContainer}>
@@ -299,7 +339,7 @@ const DetailScreen = ({ route, navigation }) => {
             <Text style={styles.statText}>{post.commentCount || 0}</Text>
           </View>
           
-          <TouchableOpacity style={styles.statItem}>
+          <TouchableOpacity style={styles.statItem} onPress={handleSharePress} accessibilityLabel="分享帖子">
             <Icon name="share-outline" size={24} color="#6C757D" />
           </TouchableOpacity>
         </View>

@@ -18,6 +18,16 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+load_local_env() {
+    if [ -f ".env.local" ]; then
+        print_info "检测到 .env.local 文件，加载前端运行时环境变量..."
+        set -a
+        # shellcheck disable=SC1091
+        . ./.env.local
+        set +a
+    fi
+}
+
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -40,6 +50,8 @@ print_warning() {
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
+
+load_local_env
 
 APP_ENV="local"
 API_BASE_URL=""
