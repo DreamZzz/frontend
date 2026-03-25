@@ -1,5 +1,8 @@
 const http = require('http');
 
+// Simulator-only flows keep the proxy on loopback, while physical-device local
+// mode binds on 0.0.0.0 so the phone can reach the Mac over the same LAN.
+const bindHost = process.env.DEV_PROXY_BIND_HOST || '127.0.0.1';
 const targetHost = process.env.DEV_PROXY_TARGET_HOST || '101.37.209.236';
 const targetPort = Number(process.env.DEV_PROXY_TARGET_PORT || 80);
 const localPort = Number(process.env.DEV_PROXY_LOCAL_PORT || 18080);
@@ -39,8 +42,8 @@ const server = http.createServer((req, res) => {
   req.pipe(proxyReq);
 });
 
-server.listen(localPort, '127.0.0.1', () => {
+server.listen(localPort, bindHost, () => {
   console.log(
-    `[dev-proxy] listening on http://127.0.0.1:${localPort} -> http://${targetHost}:${targetPort}`
+    `[dev-proxy] listening on http://${bindHost}:${localPort} -> http://${targetHost}:${targetPort}`
   );
 });

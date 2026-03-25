@@ -1,153 +1,362 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View,
-  StyleSheet,
-  TextInput,
-  Text,
+  ActivityIndicator,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   FlatList,
+  StyleSheet,
+  Text,
+  TextInput,
   TouchableOpacity,
-  Image,
+  TouchableWithoutFeedback,
+  View,
 } from 'react-native';
+import { useHeaderHeight } from '@react-navigation/elements';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
+import { postAPI } from '../services/api';
+import { isVideoUrl } from '../utils/media';
+import { getRequestErrorMessage } from '../utils/apiError';
+import CachedImage from '../components/CachedImage';
+import UserAvatar from '../components/UserAvatar';
+import VideoThumbnail from '../components/VideoThumbnail';
 
-const SearchScreen = () => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
+const SEARCH_PAGE_SIZE = 10;
+const DEBOUNCE_MS = 300;
 
-  const handleSearch = (query) => {
-    setSearchQuery(query);
-    if (query.trim()) {
-      // Mock search results
-      const results = generateMockResults(query);
-      setSearchResults(results);
-    } else {
-      setSearchResults([]);
+const SearchScreen = ({ navigation, route }) => {
+  const initialQuery = route.params?.initialQuery || '';
+  const [query, setQuery] = useState(initialQuery);
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const requestSeqRef = useRef(0);
+  const headerHeight = useHeaderHeight();
+  const insets = useSafeAreaInsets();
+
+  const resetSearchState = useCallback(() => {
+    setResults([]);
+    setLoading(false);
+    setLoadingMore(false);
+    setPage(0);
+    setHasMore(false);
+    setErrorMessage('');
+  }, []);
+
+  const runSearch = useCallback(async (keyword, targetPage = 0, append = false) => {
+    const trimmedKeyword = keyword.trim();
+    if (!trimmedKeyword) {
+      resetSearchState();
+      return;
     }
+
+    const requestSeq = requestSeqRef.current + 1;
+    requestSeqRef.current = requestSeq;
+    setErrorMessage('');
+    // Multiple in-flight searches can resolve out of order while the user types.
+    // The monotonically increasing sequence lets the latest query win.
+    if (targetPage === 0) {
+      setLoading(true);
+    } else {
+      setLoadingMore(true);
+    }
+
+    try {
+      const response = await postAPI.searchPosts(trimmedKeyword, targetPage, SEARCH_PAGE_SIZE);
+      if (requestSeq !== requestSeqRef.current) {
+        return;
+      }
+
+      const content = response.data?.content || [];
+      setResults((prev) => (append ? [...prev, ...content] : content));
+      setPage(targetPage);
+      setHasMore(Boolean(content.length) && !response.data?.last);
+    } catch (error) {
+      if (requestSeq !== requestSeqRef.current) {
+        return;
+      }
+
+      console.error('Search posts error:', error);
+      setResults([]);
+      setHasMore(false);
+      setErrorMessage(getRequestErrorMessage(error, '搜索失败，请重试'));
+    } finally {
+      if (requestSeq === requestSeqRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    }
+  }, [resetSearchState]);
+
+  useEffect(() => {
+    const trimmedQuery = query.trim();
+    requestSeqRef.current += 1;
+
+    if (!trimmedQuery) {
+      resetSearchState();
+      return undefined;
+    }
+
+    const timeout = setTimeout(() => {
+      runSearch(trimmedQuery, 0, false);
+    }, DEBOUNCE_MS);
+
+    return () => clearTimeout(timeout);
+  }, [query, resetSearchState, runSearch]);
+
+  const handleSubmitSearch = () => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      return;
+    }
+
+    runSearch(trimmedQuery, 0, false);
   };
 
-  const generateMockResults = (query) => {
-    const tags = ['travel', 'food', 'nature', 'city', 'art', 'fashion', 'music'];
-    const users = [
-      { id: 1, username: 'traveler_john', avatar: 'https://i.pravatar.cc/150?img=12' },
-      { id: 2, username: 'foodie_amy', avatar: 'https://i.pravatar.cc/150?img=8' },
-      { id: 3, username: 'nature_lover', avatar: 'https://i.pravatar.cc/150?img=15' },
-      { id: 4, username: 'city_explorer', avatar: 'https://i.pravatar.cc/150?img=20' },
-    ];
-    
-    const results = [];
-    
-    // Add tags
-    tags
-      .filter(tag => tag.includes(query.toLowerCase()))
-      .forEach(tag => {
-        results.push({
-          id: `tag_${tag}`,
-          type: 'tag',
-          title: `#${tag}`,
-          subtitle: `${Math.floor(Math.random() * 1000)} posts`,
-        });
-      });
-    
-    // Add users
-    users
-      .filter(user => user.username.includes(query.toLowerCase()))
-      .forEach(user => {
-        results.push({
-          id: `user_${user.id}`,
-          type: 'user',
-          title: `@${user.username}`,
-          subtitle: 'User',
-          avatar: user.avatar,
-        });
-      });
-    
-    return results;
+  const handleClear = () => {
+    requestSeqRef.current += 1;
+    setQuery('');
+    resetSearchState();
+  };
+
+  const handleLoadMore = () => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery || loading || loadingMore || !hasMore) {
+      return;
+    }
+
+    runSearch(trimmedQuery, page + 1, true);
+  };
+
+  const handleRetry = () => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      return;
+    }
+
+    runSearch(trimmedQuery, 0, false);
+  };
+
+  const navigateToDetail = (postId) => {
+    navigation.navigate('Detail', { postId });
+  };
+
+  const renderMediaPreview = (item) => {
+    const mediaUrl = item.imageUrls?.[0];
+
+    if (!mediaUrl) {
+      return (
+        <View style={styles.mediaFallback}>
+          <Icon name="images-outline" size={32} color="#ADB5BD" />
+        </View>
+      );
+    }
+
+    if (isVideoUrl(mediaUrl)) {
+      return (
+        <VideoThumbnail
+          url={mediaUrl}
+          style={styles.mediaPreview}
+          imageStyle={styles.mediaPreview}
+          badgePosition="topRight"
+          badgeSize={28}
+        />
+      );
+    }
+
+    return (
+      <CachedImage
+        uri={mediaUrl}
+        style={styles.mediaPreview}
+      />
+    );
   };
 
   const renderResultItem = ({ item }) => (
-    <TouchableOpacity style={styles.resultItem}>
-      {item.type === 'user' ? (
-        <>
-          <Image source={{ uri: item.avatar }} style={styles.userAvatar} />
-          <View style={styles.userInfo}>
-            <Text style={styles.resultTitle}>{item.title}</Text>
-            <Text style={styles.resultSubtitle}>{item.subtitle}</Text>
-          </View>
-        </>
-      ) : (
-        <>
-          <View style={styles.tagIcon}>
-             <Icon name="pricetag-outline" size={24} color="#6C8EBF" />
-          </View>
-          <View style={styles.tagInfo}>
-            <Text style={styles.resultTitle}>{item.title}</Text>
-            <Text style={styles.resultSubtitle}>{item.subtitle}</Text>
-          </View>
-        </>
-      )}
-      <Icon name="chevron-forward" size={20} color="#ADB5BD" />
+    <TouchableOpacity
+      testID={`search-result-${item.id}`}
+      style={styles.resultCard}
+      onPress={() => navigateToDetail(item.id)}
+      activeOpacity={0.88}
+    >
+      <View style={styles.authorRow}>
+        <UserAvatar
+          avatarUrl={item.userAvatarUrl}
+          username={item.username}
+          size={34}
+          style={styles.avatar}
+        />
+        <View style={styles.authorMeta}>
+          <Text style={styles.username} numberOfLines={1}>
+            @{item.username}
+          </Text>
+          <Text style={styles.timeText}>
+            {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : ''}
+          </Text>
+        </View>
+        <Icon name="chevron-forward" size={18} color="#ADB5BD" />
+      </View>
+
+      {item.imageUrls?.length ? (
+        <View style={styles.mediaContainer}>{renderMediaPreview(item)}</View>
+      ) : null}
+
+      <Text style={styles.content} numberOfLines={3}>
+        {item.content}
+      </Text>
+
+      <View style={styles.locationRow}>
+        <Icon name="location-outline" size={13} color="#6C8EBF" />
+        <Text style={styles.locationText} numberOfLines={1}>
+          {item.locationName || item.locationAddress || '未设置地点'}
+        </Text>
+      </View>
+
+      <View style={styles.statsRow}>
+        <View style={styles.statItem}>
+          <Icon name="heart-outline" size={14} color="#D99A9A" />
+          <Text style={styles.statText}> {item.likeCount || 0}</Text>
+        </View>
+        <View style={styles.statItem}>
+          <Icon name="chatbubble-outline" size={14} color="#6C8EBF" />
+          <Text style={styles.statText}> {item.commentCount || 0}</Text>
+        </View>
+      </View>
     </TouchableOpacity>
   );
 
-  return (
-    <View style={styles.container}>
-      {/* Search Bar */}
-      <View style={styles.searchBar}>
-        <Icon name="search" size={20} color="#6C757D" style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search posts, users, or tags..."
-          value={searchQuery}
-          onChangeText={handleSearch}
-          autoCapitalize="sentences"
-        />
-        {searchQuery ? (
-          <TouchableOpacity onPress={() => handleSearch('')}>
-            <Icon name="close-circle" size={20} color="#ADB5BD" />
-          </TouchableOpacity>
-        ) : null}
-      </View>
+  const queryText = query.trim();
+  const isEmptyState = Boolean(queryText) && !loading && !loadingMore && !errorMessage && results.length === 0;
+  const isIdleState = !queryText && results.length === 0 && !loading && !loadingMore;
 
-      {/* Search Results */}
-      {searchQuery ? (
-        <FlatList
-          data={searchResults}
-          renderItem={renderResultItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.resultsList}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Icon name="search-outline" size={60} color="#DEE2E6" />
-              <Text style={styles.emptyText}>No results found</Text>
-              <Text style={styles.emptySubtext}>Try different keywords</Text>
-            </View>
-          }
-        />
-      ) : (
+  const renderSearchBody = () => {
+    if (isIdleState) {
+      return (
         <View style={styles.placeholderContainer}>
-          <Icon name="search-outline" size={80} color="#E9ECEF" />
-          <Text style={styles.placeholderText}>Search for posts, users, or tags</Text>
-          <Text style={styles.placeholderSubtext}>
-            Discover amazing content and connect with others
+          <Icon name="search-outline" size={72} color="#DDE3EA" />
+          <Text style={styles.placeholderTitle}>输入关键词搜索帖子</Text>
+          <Text style={styles.placeholderText}>
+            支持按内容、用户名、地点模糊搜索
           </Text>
-          
-          <View style={styles.trendingContainer}>
-            <Text style={styles.trendingTitle}>Trending Now</Text>
-            <View style={styles.trendingTags}>
-              {['travel', 'food', 'nature', 'art'].map((tag) => (
-                <TouchableOpacity
-                  key={tag}
-                  style={styles.trendingTag}
-                  onPress={() => handleSearch(tag)}
-                >
-                  <Text style={styles.trendingTagText}>#{tag}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
         </View>
-      )}
-    </View>
+      );
+    }
+
+    if (loading && results.length === 0) {
+      return (
+        <View style={styles.centerState}>
+          <ActivityIndicator size="large" color="#6C8EBF" />
+        </View>
+      );
+    }
+
+    if (errorMessage && results.length === 0) {
+      return (
+        <View style={styles.centerState}>
+          <Icon name="alert-circle-outline" size={56} color="#D99A9A" />
+          <Text style={styles.stateTitle}>搜索失败</Text>
+          <Text style={styles.stateText}>{errorMessage}</Text>
+          <TouchableOpacity style={styles.stateButton} onPress={handleRetry}>
+            <Text style={styles.stateButtonText}>重试</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    if (isEmptyState) {
+      return (
+        <View style={styles.centerState}>
+          <Icon name="search-outline" size={56} color="#DDE3EA" />
+          <Text style={styles.stateTitle}>没有找到相关帖子</Text>
+          <Text style={styles.stateText}>试试更短的关键词，或者换个地点名称。</Text>
+          <TouchableOpacity style={styles.stateButton} onPress={handleClear}>
+            <Text style={styles.stateButtonText}>清空搜索</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return (
+      <FlatList
+        data={results}
+        renderItem={renderResultItem}
+        keyExtractor={(item) => String(item.id)}
+        keyboardShouldPersistTaps="handled"
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={
+          loadingMore ? (
+            <View style={styles.footer}>
+              <ActivityIndicator size="small" color="#6C8EBF" />
+            </View>
+          ) : (
+            <View style={styles.footerSpacer} />
+          )
+        }
+        contentContainerStyle={[
+          styles.resultsList,
+          {
+            paddingBottom: insets.bottom + 24,
+          },
+        ]}
+        showsVerticalScrollIndicator={false}
+      />
+    );
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <View style={styles.container}>
+          <View style={styles.searchBar}>
+            <Icon name="search" size={20} color="#6C757D" style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="搜索帖子、用户名、地点"
+              value={query}
+              onChangeText={setQuery}
+              onSubmitEditing={handleSubmitSearch}
+              returnKeyType="search"
+              autoFocus
+              autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck={false}
+              textContentType="none"
+            />
+            {queryText ? (
+              <TouchableOpacity
+                testID="search-clear-button"
+                onPress={handleClear}
+                hitSlop={8}
+                accessibilityLabel="清空搜索"
+              >
+                <Icon name="close-circle" size={20} color="#ADB5BD" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {queryText ? (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryText}>
+                {loading && results.length === 0
+                  ? '正在搜索...'
+                  : `找到 ${results.length} 条帖子`}
+              </Text>
+            </View>
+          ) : null}
+
+          {renderSearchBody()}
+        </View>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -159,11 +368,12 @@ const styles = StyleSheet.create({
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'white',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 15,
-    paddingVertical: 10,
-    margin: 10,
-    borderRadius: 10,
+    paddingVertical: 12,
+    marginHorizontal: 12,
+    marginTop: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#DEE2E6',
   },
@@ -174,112 +384,167 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     color: '#212529',
+    paddingVertical: 0,
   },
-  resultsList: {
-    paddingHorizontal: 10,
+  summaryRow: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 6,
   },
-  resultItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    padding: 15,
-    marginBottom: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-  },
-  userAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 12,
-  },
-  userInfo: {
-    flex: 1,
-  },
-  tagIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-     backgroundColor: '#E8F0FE',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  tagInfo: {
-    flex: 1,
-  },
-  resultTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#212529',
-    marginBottom: 2,
-  },
-  resultSubtitle: {
-    fontSize: 12,
+  summaryText: {
     color: '#6C757D',
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 100,
-  },
-  emptyText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#6C757D',
-    marginTop: 20,
-    marginBottom: 8,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#ADB5BD',
+    fontSize: 13,
   },
   placeholderContainer: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 100,
-    paddingHorizontal: 40,
+    paddingHorizontal: 32,
+    paddingBottom: 40,
+  },
+  placeholderTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#212529',
+    marginTop: 18,
+    marginBottom: 8,
+    textAlign: 'center',
   },
   placeholderText: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#6C757D',
-    marginTop: 20,
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  placeholderSubtext: {
     fontSize: 14,
-    color: '#ADB5BD',
+    lineHeight: 20,
+    color: '#6C757D',
     textAlign: 'center',
-    marginBottom: 40,
   },
-  trendingContainer: {
-    width: '100%',
+  centerState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
   },
-  trendingTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+  stateTitle: {
+    fontSize: 18,
+    fontWeight: '700',
     color: '#212529',
-    marginBottom: 15,
+    marginTop: 14,
+    marginBottom: 6,
     textAlign: 'center',
   },
-  trendingTags: {
+  stateText: {
+    fontSize: 14,
+    color: '#6C757D',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  stateButton: {
+    marginTop: 18,
+    backgroundColor: '#E8F0FE',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 999,
+  },
+  stateButtonText: {
+    color: '#6C8EBF',
+    fontWeight: '700',
+  },
+  resultsList: {
+    paddingHorizontal: 12,
+    paddingTop: 6,
+  },
+  resultCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    marginBottom: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  authorRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 10,
+  },
+  avatar: {
+    marginRight: 10,
+  },
+  authorMeta: {
+    flex: 1,
+    marginRight: 8,
+  },
+  username: {
+    color: '#212529',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  timeText: {
+    color: '#ADB5BD',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  mediaContainer: {
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+  },
+  mediaPreview: {
+    width: '100%',
+    height: 220,
+    borderRadius: 14,
+    backgroundColor: '#E9ECEF',
+  },
+  mediaFallback: {
+    width: '100%',
+    height: 220,
+    borderRadius: 14,
+    backgroundColor: '#EEF2F6',
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  trendingTag: {
-     backgroundColor: '#E8F0FE',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 20,
-    margin: 5,
+  content: {
+    paddingHorizontal: 14,
+    color: '#212529',
+    fontSize: 15,
+    lineHeight: 21,
   },
-  trendingTagText: {
-     color: '#6C8EBF',
-    fontWeight: '600',
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingTop: 10,
+  },
+  locationText: {
+    marginLeft: 4,
+    color: '#6C8EBF',
+    fontSize: 13,
+    flex: 1,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 14,
+  },
+  statItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statText: {
+    color: '#6C757D',
+    fontSize: 12,
+  },
+  footer: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  footerSpacer: {
+    height: 8,
   },
 });
 

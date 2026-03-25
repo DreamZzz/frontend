@@ -4,7 +4,6 @@ import {
   View,
   StyleSheet,
   FlatList,
-  Image,
   TouchableOpacity,
   Text,
   Dimensions,
@@ -12,10 +11,10 @@ import {
   ActivityIndicator
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import { buildImageUrl } from '../utils/imageUrl';
 import { postAPI } from '../services/api';
 import { isVideoUrl } from '../utils/media';
 import VideoThumbnail from '../components/VideoThumbnail';
+import CachedImage from '../components/CachedImage';
 
 const { width } = Dimensions.get('window');
 const itemWidth = (width - 30) / 2; // Two columns with padding
@@ -72,6 +71,10 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
+  const handleOpenSearch = () => {
+    navigation.navigate('Search');
+  };
+
   const renderPostItem = ({ item }) => (
     <TouchableOpacity
       style={styles.postItem}
@@ -87,16 +90,23 @@ const HomeScreen = ({ navigation }) => {
             badgeSize={26}
           />
         ) : (
-          <Image
-            source={{ uri: buildImageUrl(item.imageUrls[0]) || 'https://via.placeholder.com/300' }}
+          <CachedImage
+            uri={item.imageUrls[0]}
             style={styles.postImage}
-            resizeMode="cover"
           />
         )
       )}
       <View style={styles.postInfo}>
         <Text style={styles.username}>@{item.username}</Text>
         <Text style={styles.content} numberOfLines={2}>{item.content}</Text>
+        {!!item.locationName && (
+          <View style={styles.locationRow}>
+            <Icon name="location-outline" size={13} color="#6C8EBF" />
+            <Text style={styles.locationText} numberOfLines={1}>
+              {item.locationName}
+            </Text>
+          </View>
+        )}
          <View style={styles.stats}>
            <View style={styles.statItem}>
              <Icon name="heart-outline" size={14} color="#D99A9A" />
@@ -120,30 +130,35 @@ const HomeScreen = ({ navigation }) => {
     );
   };
 
-  if (loading && posts.length === 0) {
-    return (
-      <View style={styles.centerContainer}>
-         <ActivityIndicator size="large" color="#6C8EBF" />
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
-      <FlatList
-        data={posts}
-        renderItem={renderPostItem}
-        keyExtractor={(item) => item.id.toString()}
-        numColumns={2}
-        columnWrapperStyle={styles.columnWrapper}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-        onEndReached={loadMore}
-        onEndReachedThreshold={0.5}
-        ListFooterComponent={renderFooter}
-        showsVerticalScrollIndicator={false}
-      />
+      <TouchableOpacity style={styles.searchEntry} onPress={handleOpenSearch} activeOpacity={0.9}>
+        <Icon name="search" size={18} color="#6C757D" />
+        <Text style={styles.searchEntryText}>搜索帖子、用户名、地点</Text>
+        <Icon name="chevron-forward" size={18} color="#ADB5BD" />
+      </TouchableOpacity>
+
+      {loading && posts.length === 0 ? (
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color="#6C8EBF" />
+        </View>
+      ) : (
+        <FlatList
+          data={posts}
+          renderItem={renderPostItem}
+          keyExtractor={(item) => item.id.toString()}
+          numColumns={2}
+          columnWrapperStyle={styles.columnWrapper}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={renderFooter}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listContent}
+        />
+      )}
     </View>
   );
 };
@@ -183,6 +198,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 10,
   },
+  searchEntry: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+  },
+  searchEntryText: {
+    flex: 1,
+    marginHorizontal: 10,
+    color: '#6C757D',
+    fontSize: 14,
+  },
   postItem: {
     width: itemWidth,
     backgroundColor: 'white',
@@ -214,6 +246,17 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     lineHeight: 16,
   },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  locationText: {
+    marginLeft: 4,
+    fontSize: 12,
+    color: '#6C8EBF',
+    flex: 1,
+  },
   stats: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -230,6 +273,9 @@ const styles = StyleSheet.create({
   footer: {
     paddingVertical: 20,
     alignItems: 'center',
+  },
+  listContent: {
+    paddingBottom: 24,
   },
 });
 

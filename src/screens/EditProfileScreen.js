@@ -1,15 +1,22 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Keyboard,
+  KeyboardAvoidingView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
+  Platform,
 } from 'react-native';
+import { useHeaderHeight } from '@react-navigation/elements';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { userAPI } from '../services/api';
+import { getRequestErrorMessage } from '../utils/apiError';
 
 const GENDER_OPTIONS = ['保密', '男', '女', '其他'];
 
@@ -19,24 +26,28 @@ const EditProfileScreen = ({ navigation, route }) => {
   const initialUser = route.params?.user || {};
   const { updateUser } = useAuth();
   const [displayName, setDisplayName] = useState(initialUser.displayName || initialUser.username || '');
+  const [phone, setPhone] = useState(initialUser.phone || '');
   const [bio, setBio] = useState(initialUser.bio || '');
   const [gender, setGender] = useState(initialUser.gender || '保密');
   const [birthday, setBirthday] = useState(initialUser.birthday || '');
   const [region, setRegion] = useState(initialUser.region || '');
   const [saving, setSaving] = useState(false);
   const bioInputRef = useRef(null);
+  const headerHeight = useHeaderHeight();
+  const insets = useSafeAreaInsets();
 
   const userId = initialUser.id;
 
   const payload = useMemo(
     () => ({
       displayName: displayName.trim(),
+      phone: phone.trim(),
       bio: bio.trim(),
       gender,
       birthday: birthday.trim() || null,
       region: region.trim(),
     }),
-    [bio, birthday, displayName, gender, region]
+    [bio, birthday, displayName, gender, phone, region]
   );
 
   const handleSave = async () => {
@@ -62,18 +73,26 @@ const EditProfileScreen = ({ navigation, route }) => {
       navigation.goBack();
     } catch (error) {
       console.error('Failed to update profile:', error);
-      const message =
-        typeof error.response?.data === 'string'
-          ? error.response.data
-          : error.response?.data?.message || '保存失败，请稍后重试';
-      Alert.alert('保存失败', message);
+      Alert.alert('保存失败', getRequestErrorMessage(error, '保存失败，请稍后重试'));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          contentInsetAdjustmentBehavior="always"
+        >
       <View style={styles.section}>
         <Text style={styles.label}>名字</Text>
         <TextInput
@@ -95,6 +114,17 @@ const EditProfileScreen = ({ navigation, route }) => {
           multiline
           autoCorrect={false}
           scrollEnabled
+        />
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.label}>手机号</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="绑定后可用短信验证码登录"
+          value={phone}
+          onChangeText={setPhone}
+          keyboardType="phone-pad"
         />
       </View>
 
@@ -143,7 +173,9 @@ const EditProfileScreen = ({ navigation, route }) => {
       >
         <Text style={styles.saveButtonText}>{saving ? '保存中...' : '保存资料'}</Text>
       </TouchableOpacity>
-    </ScrollView>
+        </ScrollView>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 };
 

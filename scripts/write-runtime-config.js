@@ -4,6 +4,7 @@ const path = require('path');
 const environment = process.argv[2] || 'local';
 const apiBaseUrl = process.argv[3];
 const proxyTarget = process.argv[4] || '';
+const wechatAppId = process.env.APP_SHARE_WECHAT_APP_ID || '';
 
 if (!apiBaseUrl) {
   console.error('Usage: node scripts/write-runtime-config.js <environment> <apiBaseUrl> [proxyTarget]');
@@ -11,11 +12,16 @@ if (!apiBaseUrl) {
 }
 
 const outputPath = path.join(__dirname, '..', 'src', 'config', 'runtime.generated.js');
-const content = `const runtimeConfig = {
-  environment: '${environment}',
-  apiBaseUrl: '${apiBaseUrl}',
-  proxyTarget: '${proxyTarget}',
+const runtimeConfig = {
+  environment,
+  apiBaseUrl,
+  proxyTarget,
+  wechatAppId,
 };
+
+// The generated file is plain JS so Metro, Jest, and Xcode bundle steps can all
+// read the same runtime config without adding another build-time dependency.
+const content = `const runtimeConfig = ${JSON.stringify(runtimeConfig, null, 2)};
 
 export default runtimeConfig;
 `;

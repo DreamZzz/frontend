@@ -1,3 +1,5 @@
+/* eslint-env jest */
+
 jest.mock('react-native-vector-icons/Ionicons', () => {
   const React = require('react');
 

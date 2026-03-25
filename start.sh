@@ -1,6 +1,11 @@
 #!/bin/bash
 # 前端开发启动脚本
 # 用法: ./start.sh [ios|android|device|metro] [local|remote] [ios|android|device] [设备名]
+# 也支持简写:
+#   ./start.sh local                    # 等价于 ./start.sh ios local
+#   ./start.sh remote                   # 等价于 ./start.sh ios remote
+#   ./start.sh local "你的iPhone名称"     # 等价于 ./start.sh device local "你的iPhone名称"
+#   ./start.sh remote "你的iPhone名称"    # 等价于 ./start.sh device remote "你的iPhone名称"
 # 示例: 
 #   ./start.sh ios local     # 启动iOS本地联调环境
 #   ./start.sh ios remote    # 启动iOS线上联调环境
@@ -39,8 +44,10 @@ print_error() {
 APP_ENV="local"
 API_BASE_URL=""
 PROXY_TARGET=""
+PROXY_BIND_HOST="127.0.0.1"
 CONFIG_PLATFORM="ios"
 TARGET_DEVICE_NAME=""
+IOS_APP_BUNDLE_ID="com.qiang.socialapp.frontend"
 
 list_connected_ios_devices() {
     xcrun xcdevice list 2>/dev/null | node -e '
@@ -120,6 +127,23 @@ print_available_ios_devices() {
     done <<< "$devices"
 }
 
+launch_ios_app_on_device() {
+    local device_name="$1"
+
+    if [ -z "$device_name" ]; then
+        return 1
+    fi
+
+    if ! command -v xcrun >/dev/null 2>&1; then
+        return 1
+    fi
+
+    xcrun devicectl device process launch \
+        --device "$device_name" \
+        --terminate-existing \
+        "$IOS_APP_BUNDLE_ID" >/tmp/social-app-devicectl-launch.log 2>&1
+}
+
 detect_local_lan_ip() {
     local preferred_interface
     local ip
@@ -158,6 +182,8 @@ detect_local_lan_ip() {
 }
 
 resolve_runtime_config() {
+    PROXY_BIND_HOST="127.0.0.1"
+
     case "$APP_ENV" in
         local)
             if [ "$CONFIG_PLATFORM" = "ios" ]; then
@@ -170,8 +196,12 @@ resolve_runtime_config() {
                     print_info "示例: LOCAL_LAN_IP=192.168.1.23 ./start.sh device local"
                     exit 1
                 fi
-                API_BASE_URL="http://${local_lan_ip}:8080"
-                PROXY_TARGET=""
+                # Physical devices cannot reach the Mac-only loopback proxy, so local
+                # mode exposes the proxy on the LAN and keeps the backend itself bound
+                # to localhost:8080 on the host.
+                API_BASE_URL="http://${local_lan_ip}:18080"
+                PROXY_TARGET="http://127.0.0.1:8080"
+                PROXY_BIND_HOST="0.0.0.0"
             else
                 API_BASE_URL="http://10.0.2.2:8080"
                 PROXY_TARGET="http://127.0.0.1:8080"
@@ -216,7 +246,7 @@ stop_existing_proxy() {
 }
 
 start_api_proxy_background() {
-    print_info "启动本地API代理（127.0.0.1:18080 -> $PROXY_TARGET）..."
+    print_info "启动本地API代理（${PROXY_BIND_HOST}:18080 -> ${PROXY_TARGET}）..."
     stop_existing_proxy
 
     rm -f /tmp/social-app-api-proxy.log 2>/dev/null || true
@@ -225,7 +255,7 @@ start_api_proxy_background() {
     if [ -z "$DEV_PROXY_TARGET_PORT" ]; then
         DEV_PROXY_TARGET_PORT=80
     fi
-    DEV_PROXY_TARGET_HOST="$DEV_PROXY_TARGET_HOST" DEV_PROXY_TARGET_PORT="$DEV_PROXY_TARGET_PORT" \
+    DEV_PROXY_BIND_HOST="$PROXY_BIND_HOST" DEV_PROXY_TARGET_HOST="$DEV_PROXY_TARGET_HOST" DEV_PROXY_TARGET_PORT="$DEV_PROXY_TARGET_PORT" \
         node scripts/dev-proxy.js > /tmp/social-app-api-proxy.log 2>&1 &
     PROXY_PID=$!
 
@@ -391,6 +421,24 @@ check_ios_device_signing_ready() {
     fi
 }
 
+check_ios_simulator_runtime_ready() {
+    local simulator_sdk_version
+
+    simulator_sdk_version=$(xcodebuild -showsdks 2>/dev/null | awk '/Simulator - iOS / {print $4; exit}')
+
+    if [ -z "$simulator_sdk_version" ]; then
+        print_error "未检测到 iOS Simulator SDK，Xcode 安装状态异常"
+        print_info "可先执行: xcodebuild -runFirstLaunch"
+        exit 1
+    fi
+
+    if ! xcrun simctl list runtimes available 2>/dev/null | grep -Fq "iOS ${simulator_sdk_version} "; then
+        print_error "当前 Xcode 需要 iOS ${simulator_sdk_version} Simulator runtime，但本机未安装"
+        print_info "可执行: xcodebuild -downloadPlatform iOS"
+        exit 1
+    fi
+}
+
 # 启动Metro开发服务器
 start_metro() {
     print_info "启动Metro开发服务器..."
@@ -417,6 +465,8 @@ start_ios() {
         print_error "Xcode未安装或未配置"
         exit 1
     fi
+
+    check_ios_simulator_runtime_ready
     
     # 启动iOS模拟器
     print_info "启动React Native iOS应用..."
@@ -442,7 +492,6 @@ start_device() {
 
     print_info "启动iPhone真机开发环境..."
     write_runtime_config
-    start_metro_background
 
     if ! xcodebuild -version >/dev/null 2>&1; then
         print_error "Xcode未安装或未配置"
@@ -471,13 +520,34 @@ start_device() {
     device_run_log="/tmp/social-app-device-run.log"
     rm -f "$device_run_log" 2>/dev/null || true
 
-    npx react-native run-ios --device "$resolved_device_name" 2>&1 | tee "$device_run_log"
+    if [ -n "$PROXY_TARGET" ]; then
+        # Device-local mode still embeds the JS bundle, but it needs a relay so the
+        # phone can reach the host backend over the LAN without exposing port 8080.
+        start_api_proxy_background
+    fi
+
+    if [ "$APP_ENV" = "remote" ]; then
+        print_info "远端真机联调使用 Release 构建，不依赖 Metro"
+        npx react-native run-ios --mode Release --no-packager --device "$resolved_device_name" 2>&1 | tee "$device_run_log"
+    else
+        print_info "真机本地联调使用 Release 构建，并通过局域网代理访问本机后端"
+        npx react-native run-ios --mode Release --no-packager --device "$resolved_device_name" 2>&1 | tee "$device_run_log"
+    fi
 
     if grep -q "Could not find a physical device" "$device_run_log"; then
         print_error "Xcode 未找到匹配的真机: $resolved_device_name"
         print_info "可用真机列表:"
         print_available_ios_devices || true
         exit 1
+    fi
+
+    if grep -q "success Installed the app on the device." "$device_run_log"; then
+        if launch_ios_app_on_device "$resolved_device_name"; then
+            print_success "已在真机上重新启动最新构建的 App"
+        else
+            print_warning "App 已安装到真机，但自动拉起失败，请在手机上手动点开 frontend"
+            print_info "devicectl 日志: /tmp/social-app-devicectl-launch.log"
+        fi
     fi
 }
 
@@ -518,6 +588,18 @@ main() {
     APP_ENV="${2:-local}"
     CONFIG_PLATFORM="$PLATFORM"
     TARGET_DEVICE_NAME=""
+
+    if [[ "$PLATFORM" == "local" || "$PLATFORM" == "remote" ]]; then
+        APP_ENV="$PLATFORM"
+        if [ -n "${2:-}" ]; then
+            PLATFORM="device"
+            CONFIG_PLATFORM="device"
+            TARGET_DEVICE_NAME="$2"
+        else
+            PLATFORM="ios"
+            CONFIG_PLATFORM="ios"
+        fi
+    fi
 
     if [ "$PLATFORM" = "device" ]; then
         if [ -n "${3:-}" ]; then

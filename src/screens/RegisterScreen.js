@@ -9,16 +9,22 @@ import {
   Platform,
   Alert,
   ScrollView,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from 'react-native';
+import { useHeaderHeight } from '@react-navigation/elements';
 import { authAPI } from '../services/api';
 import { API_BASE_URL } from '../config/api';
+import { getRequestErrorMessage } from '../utils/apiError';
 
 const RegisterScreen = ({ navigation }) => {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const headerHeight = useHeaderHeight();
 
   const handleRegister = async () => {
     if (!username.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
@@ -38,24 +44,22 @@ const RegisterScreen = ({ navigation }) => {
 
     setLoading(true);
     try {
-      await authAPI.register(username, email, password);
+      await authAPI.register(username, email, password, phone);
       
        Alert.alert('成功', '账户创建成功！请登录。');
       navigation.navigate('Login');
     } catch (error) {
       console.error('Registration error:', error);
-      if (!error.response) {
-        const details = __DEV__
-          ? `无法连接到后端服务\n请求地址: ${API_BASE_URL}\n错误信息: ${error.message || 'unknown error'}`
-          : '无法连接到后端服务，请确认后端和数据库已启动';
-        Alert.alert('注册失败', details);
-      } else {
-        const message =
-          typeof error.response?.data === 'string'
-            ? error.response.data
-            : error.response?.data?.message || `发生错误（${error.response?.status}）`;
-        Alert.alert('注册失败', message);
-      }
+      Alert.alert(
+        '注册失败',
+        getRequestErrorMessage(error, `发生错误（${error.response?.status || 'network'}）`, {
+          apiBaseUrl: API_BASE_URL,
+          includeRequestUrl: __DEV__,
+          networkFallbackMessage: __DEV__
+            ? '无法连接到后端服务'
+            : '无法连接到后端服务，请确认后端和数据库已启动',
+        })
+      );
     } finally {
       setLoading(false);
     }
@@ -65,8 +69,16 @@ const RegisterScreen = ({ navigation }) => {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
     >
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          contentInsetAdjustmentBehavior="always"
+          contentContainerStyle={styles.scrollContent}
+        >
         <View style={styles.formContainer}>
            <Text style={styles.title}>创建账户</Text>
            <Text style={styles.subtitle}>加入我们的社区</Text>
@@ -91,6 +103,17 @@ const RegisterScreen = ({ navigation }) => {
               onChangeText={setEmail}
               autoCapitalize="none"
               keyboardType="email-address"
+            />
+          </View>
+
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>手机号（可选）</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="绑定后可用短信验证码登录"
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
             />
           </View>
           
@@ -133,7 +156,8 @@ const RegisterScreen = ({ navigation }) => {
              </TouchableOpacity>
           </View>
         </View>
-      </ScrollView>
+        </ScrollView>
+      </TouchableWithoutFeedback>
     </KeyboardAvoidingView>
   );
 };
@@ -142,6 +166,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8F9FA',
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingVertical: 24,
   },
   formContainer: {
     paddingHorizontal: 30,

@@ -4,7 +4,6 @@ import {
   View,
   StyleSheet,
   Text,
-  Image,
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
@@ -14,9 +13,10 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useAuth } from '../context/AuthContext';
 import { userAPI, postAPI, uploadAPI } from '../services/api';
-import { buildImageUrl } from '../utils/imageUrl';
 import { isVideoUrl } from '../utils/media';
 import VideoThumbnail from '../components/VideoThumbnail';
+import UserAvatar from '../components/UserAvatar';
+import CachedImage from '../components/CachedImage';
 
 const ProfileScreen = ({ navigation }) => {
   const { user: authUser, logout, updateUser } = useAuth();
@@ -185,7 +185,6 @@ const ProfileScreen = ({ navigation }) => {
     following: 0,
   };
 
-  const avatarUri = user.avatarUrl || 'https://i.pravatar.cc/150?img=1';
   const displayName = user.displayName || user.username;
   const profileMeta = [
     user.gender ? `性别 ${user.gender}` : null,
@@ -202,7 +201,14 @@ const ProfileScreen = ({ navigation }) => {
            disabled={uploadingAvatar}
            style={styles.avatarContainer}
          >
-           <Image source={{ uri: buildImageUrl(avatarUri) || avatarUri }} style={styles.avatar} />
+           <UserAvatar
+             avatarUrl={user.avatarUrl}
+             name={displayName}
+             username={user.username}
+             email={user.email}
+             size={100}
+             style={styles.avatar}
+           />
            {uploadingAvatar && (
              <View style={styles.avatarOverlay}>
                <ActivityIndicator size="small" color="white" />
@@ -282,8 +288,8 @@ const ProfileScreen = ({ navigation }) => {
                       badgeSize={24}
                     />
                   ) : (
-                    <Image
-                      source={{ uri: buildImageUrl(post.imageUrls[0]) }}
+                    <CachedImage
+                      uri={post.imageUrls[0]}
                       style={styles.thumbnailImage}
                     />
                   )

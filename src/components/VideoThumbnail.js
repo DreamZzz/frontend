@@ -1,22 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   StyleSheet,
-  Image,
   ActivityIndicator,
   Text,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import { createThumbnail } from 'react-native-create-thumbnail';
-import { buildImageUrl } from '../utils/imageUrl';
-
-const thumbnailCache = new Map();
-
-const hashString = (value) =>
-  Array.from(value).reduce(
-    (acc, char, index) => (acc * 31 + char.charCodeAt(0) + index) % 2147483647,
-    7
-  );
+import CachedImage from './CachedImage';
+import { getVideoThumbnail } from '../utils/mediaCache';
 
 const badgePositionStyles = {
   center: styles => styles.centerBadge,
@@ -32,16 +23,13 @@ const VideoThumbnail = ({
   badgeIconSize,
   label,
 }) => {
-  const resolvedUrl = useMemo(() => buildImageUrl(url) || url || null, [url]);
-  const [thumbnailUri, setThumbnailUri] = useState(() =>
-    resolvedUrl ? thumbnailCache.get(resolvedUrl) || null : null
-  );
-  const [loading, setLoading] = useState(Boolean(resolvedUrl && !thumbnailUri));
+  const [thumbnailUri, setThumbnailUri] = useState(null);
+  const [loading, setLoading] = useState(Boolean(url));
 
   useEffect(() => {
     let active = true;
 
-    if (!resolvedUrl) {
+    if (!url) {
       setThumbnailUri(null);
       setLoading(false);
       return () => {
@@ -49,30 +37,14 @@ const VideoThumbnail = ({
       };
     }
 
-    const cachedThumbnail = thumbnailCache.get(resolvedUrl);
-    if (cachedThumbnail) {
-      setThumbnailUri(cachedThumbnail);
-      setLoading(false);
-      return () => {
-        active = false;
-      };
-    }
-
     setLoading(true);
-    createThumbnail({
-      url: resolvedUrl,
-      timeStamp: 1000,
-      maxWidth: 1024,
-      maxHeight: 1024,
-      cacheName: `video-thumb-${Math.abs(hashString(resolvedUrl))}`,
-    })
-      .then((result) => {
+    getVideoThumbnail(url)
+      .then((thumbnailPath) => {
         if (!active) {
           return;
         }
 
-        thumbnailCache.set(resolvedUrl, result.path);
-        setThumbnailUri(result.path);
+        setThumbnailUri(thumbnailPath);
       })
       .catch((error) => {
         if (__DEV__) {
@@ -91,7 +63,7 @@ const VideoThumbnail = ({
     return () => {
       active = false;
     };
-  }, [resolvedUrl]);
+  }, [url]);
 
   const badgeStyleFactory = badgePositionStyles[badgePosition] || badgePositionStyles.topRight;
   const iconContainerSize = badgeSize;
@@ -100,10 +72,10 @@ const VideoThumbnail = ({
   return (
     <View style={[styles.container, style]}>
       {thumbnailUri ? (
-        <Image
-          source={{ uri: thumbnailUri }}
+        <CachedImage
+          uri={thumbnailUri}
           style={[styles.image, imageStyle]}
-          resizeMode="cover"
+          showLoader={false}
         />
       ) : (
         <View style={[styles.fallback, imageStyle]}>

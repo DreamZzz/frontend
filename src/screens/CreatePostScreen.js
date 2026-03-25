@@ -1,5 +1,4 @@
-import React, { useMemo, useRef, useState, useCallback } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -10,34 +9,54 @@ import {
   Image,
   Alert,
   Platform,
+  KeyboardAvoidingView,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { uploadAPI, postAPI } from '../services/api';
+import { API_BASE_URL } from '../config/api';
+import { getRequestErrorMessage, getResponseErrorMessage } from '../utils/apiError';
 import { getMediaLabel, isVideoAsset } from '../utils/media';
+import { normalizeLocationSelection } from '../utils/location';
 import VideoThumbnail from '../components/VideoThumbnail';
 
-const CreatePostScreen = ({ navigation }) => {
+const CreatePostScreen = ({ navigation, route }) => {
   const { user } = useAuth();
-   const [mediaFiles, setMediaFiles] = useState([]);
-   const [loading, setLoading] = useState(false);
-   const contentInputRef = useRef(null);
-   const contentDraftRef = useRef('');
-   const isIosSimulator = useMemo(
-     () => Platform.OS === 'ios' && String(Platform.constants?.model || '').includes('Simulator'),
-     []
-   );
+  const insets = useSafeAreaInsets();
+  const [mediaFiles, setMediaFiles] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const contentInputRef = useRef(null);
+  const contentDraftRef = useRef('');
+  const isIosSimulator = useMemo(
+    () => Platform.OS === 'ios' && String(Platform.constants?.model || '').includes('Simulator'),
+    []
+  );
 
-   useFocusEffect(
-     useCallback(() => {
-       return () => {
-         contentDraftRef.current = '';
-         setMediaFiles([]);
-         setLoading(false);
-       };
-     }, [])
-   );
+  useEffect(() => {
+    const nextLocation = normalizeLocationSelection(route.params?.selectedLocation);
+    if (!nextLocation) {
+      return;
+    }
+
+    setSelectedLocation(nextLocation);
+    navigation.setParams({
+      selectedLocation: undefined,
+      selectedLocationToken: undefined,
+    });
+  }, [navigation, route.params?.selectedLocation, route.params?.selectedLocationToken]);
+
+  const resetComposer = () => {
+    contentDraftRef.current = '';
+    setMediaFiles([]);
+    setSelectedLocation(null);
+    setLoading(false);
+    contentInputRef.current?.clear();
+  };
 
    const mapAssetToMediaFile = (asset) => {
      const isVideo = isVideoAsset(asset);
@@ -147,6 +166,14 @@ const CreatePostScreen = ({ navigation }) => {
     setMediaFiles(nextMedia);
   };
 
+  const handlePickLocation = () => {
+    navigation.navigate('PlacePicker');
+  };
+
+  const handleClearLocation = () => {
+    setSelectedLocation(null);
+  };
+
   const handlePost = async () => {
     const content = contentDraftRef.current.trim();
 
@@ -190,6 +217,10 @@ const CreatePostScreen = ({ navigation }) => {
        const postData = {
          content,
          imageUrls: mediaUrls,
+         locationName: selectedLocation?.name || null,
+         locationAddress: selectedLocation?.address || null,
+         latitude: selectedLocation?.latitude ?? null,
+         longitude: selectedLocation?.longitude ?? null,
        };
        
        console.log('Post data to send:', postData);
@@ -199,19 +230,25 @@ const CreatePostScreen = ({ navigation }) => {
        console.log('Post creation response:', response.data);
       
        Alert.alert('成功', '帖子发布成功！');
-       contentDraftRef.current = '';
-       setMediaFiles([]);
-       contentInputRef.current?.clear();
+       resetComposer();
        navigation.navigate('Home');
     } catch (error) {
       console.error('Error creating post:', error);
       if (!error.response) {
-        Alert.alert('错误', '无法连接到后端服务，请确认后端和数据库已启动');
+        Alert.alert(
+          '错误',
+          getRequestErrorMessage(error, '发布失败', {
+            apiBaseUrl: API_BASE_URL,
+            includeRequestUrl: true,
+            includeErrorCode: true,
+            networkFallbackMessage: '无法连接到后端服务',
+          })
+        );
       } else if (error.response.status === 401) {
         Alert.alert('错误', '登录状态已失效，请重新登录');
         navigation.navigate('Login');
       } else {
-        Alert.alert('错误', error.response?.data || '发布失败');
+        Alert.alert('错误', getResponseErrorMessage(error, '发布失败'));
       }
     } finally {
       setLoading(false);
@@ -219,8 +256,20 @@ const CreatePostScreen = ({ navigation }) => {
   };
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <View style={styles.formContainer}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={[styles.formContainer, { paddingBottom: insets.bottom + 24 }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          contentInsetAdjustmentBehavior="always"
+        >
          <Text style={styles.title}>发布新帖子</Text>
         
         {/* Content Input */}
@@ -296,6 +345,46 @@ const CreatePostScreen = ({ navigation }) => {
           )}
         </View>
 
+        <View style={styles.locationSection}>
+          <Text style={styles.sectionTitle}>添加地点</Text>
+          <Text style={styles.sectionSubtitle}>可通过地图搜索地点，并记录经纬度与地址信息</Text>
+          <TouchableOpacity style={styles.locationButton} onPress={handlePickLocation}>
+            <View style={styles.locationButtonContent}>
+              <Icon name="location-outline" size={22} color="#6C8EBF" />
+              <View style={styles.locationTextContainer}>
+                <Text style={styles.locationButtonTitle}>
+                  {selectedLocation ? selectedLocation.name : '选择地点'}
+                </Text>
+                <Text style={styles.locationButtonSubtitle}>
+                  {selectedLocation ? selectedLocation.address || '已记录位置信息' : '地点将显示在帖子详情中'}
+                </Text>
+              </View>
+            </View>
+            <Icon name="chevron-forward" size={20} color="#ADB5BD" />
+          </TouchableOpacity>
+          {selectedLocation && (
+            <View style={styles.selectedLocationCard}>
+              <View style={styles.selectedLocationHeader}>
+                <View style={styles.selectedLocationTitleRow}>
+                  <Icon name="pin" size={16} color="#6C8EBF" />
+                  <Text style={styles.selectedLocationName}>{selectedLocation.name}</Text>
+                </View>
+                <TouchableOpacity onPress={handleClearLocation}>
+                  <Icon name="close-circle" size={20} color="#ADB5BD" />
+                </TouchableOpacity>
+              </View>
+              {!!selectedLocation.address && (
+                <Text style={styles.selectedLocationAddress}>{selectedLocation.address}</Text>
+              )}
+              {selectedLocation.latitude !== null && selectedLocation.longitude !== null && (
+                <Text style={styles.selectedLocationMeta}>
+                  {selectedLocation.latitude.toFixed(6)}, {selectedLocation.longitude.toFixed(6)}
+                </Text>
+              )}
+            </View>
+          )}
+        </View>
+
         {/* Post Button */}
         <TouchableOpacity
           style={[styles.postButton, loading && styles.buttonDisabled]}
@@ -306,8 +395,9 @@ const CreatePostScreen = ({ navigation }) => {
              {loading ? '发布中...' : '发布帖子'}
           </Text>
         </TouchableOpacity>
-      </View>
-    </ScrollView>
+        </ScrollView>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -341,6 +431,9 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   imageSection: {
+    marginBottom: 30,
+  },
+  locationSection: {
     marginBottom: 30,
   },
   sectionTitle: {
@@ -379,6 +472,75 @@ const styles = StyleSheet.create({
   },
   imagePreviewContainer: {
     marginTop: 10,
+  },
+  locationButton: {
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#DEE2E6',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  locationButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    paddingRight: 12,
+  },
+  locationTextContainer: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  locationButtonTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#212529',
+    marginBottom: 2,
+  },
+  locationButtonSubtitle: {
+    fontSize: 13,
+    color: '#6C757D',
+    lineHeight: 18,
+  },
+  selectedLocationCard: {
+    marginTop: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    padding: 14,
+  },
+  selectedLocationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  selectedLocationTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    paddingRight: 12,
+  },
+  selectedLocationName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#212529',
+    marginLeft: 8,
+    flex: 1,
+  },
+  selectedLocationAddress: {
+    fontSize: 13,
+    color: '#495057',
+    lineHeight: 18,
+  },
+  selectedLocationMeta: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#ADB5BD',
   },
   previewTitle: {
     fontSize: 16,

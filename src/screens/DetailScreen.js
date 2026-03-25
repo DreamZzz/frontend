@@ -3,7 +3,6 @@ import {
   View,
   StyleSheet,
   ScrollView,
-  Image,
   Text,
   TouchableOpacity,
   TextInput,
@@ -16,13 +15,13 @@ import {
   Keyboard,
   Platform,
 } from 'react-native';
-import { buildImageUrl } from '../utils/imageUrl';
-import Swiper from 'react-native-swiper';
+import { useHeaderHeight } from '@react-navigation/elements';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
-import Video from 'react-native-video';
 import { useAuth } from '../context/AuthContext';
 import { commentAPI, likeAPI, postAPI } from '../services/api';
-import { isVideoUrl } from '../utils/media';
+import UserAvatar from '../components/UserAvatar';
+import MediaCarousel from '../components/MediaCarousel';
 
 const { width } = Dimensions.get('window');
 
@@ -33,11 +32,12 @@ const DetailScreen = ({ route, navigation }) => {
   const [loading, setLoading] = useState(true);
   const [replyingToCommentId, setReplyingToCommentId] = useState(null);
   const [replyingToUsername, setReplyingToUsername] = useState('');
-  const [activeMediaIndex, setActiveMediaIndex] = useState(0);
   const { user } = useAuth();
   const commentInputRef = useRef(null);
   const commentDraftRef = useRef('');
   const scrollViewRef = useRef(null);
+  const headerHeight = useHeaderHeight();
+  const insets = useSafeAreaInsets();
 
   const fetchPostDetails = useCallback(async () => {
     try {
@@ -233,21 +233,25 @@ const DetailScreen = ({ route, navigation }) => {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={88}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <ScrollView
           ref={scrollViewRef}
           style={styles.container}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
+          contentInsetAdjustmentBehavior="always"
         >
       {/* Author Info */}
       <View style={styles.authorContainer}>
-        <Image
-          source={{ uri: post.userAvatarUrl || 'https://i.pravatar.cc/150' }}
+        <UserAvatar
+          avatarUrl={post.userAvatarUrl}
+          name={post.displayName || post.username}
+          username={post.username}
+          size={50}
           style={styles.avatar}
         />
         <View style={styles.authorInfo}>
@@ -261,48 +265,28 @@ const DetailScreen = ({ route, navigation }) => {
       {/* Image Swiper */}
       {post.imageUrls && post.imageUrls.length > 0 && (
         <View style={styles.swiperContainer}>
-          <Swiper
-            style={styles.swiper}
-            showsButtons={false}
-            showsPagination
-            dotColor="rgba(255,255,255,0.5)"
-            activeDotColor="#6C8EBF"
-            onIndexChanged={setActiveMediaIndex}
-          >
-            {post.imageUrls.map((url, index) => (
-              <View key={index} style={styles.slide}>
-                {isVideoUrl(url) ? (
-                  <View style={styles.videoSlide}>
-                    <Video
-                      source={{ uri: buildImageUrl(url) || url }}
-                      style={styles.slideVideo}
-                      controls
-                      paused={activeMediaIndex !== index}
-                      resizeMode="cover"
-                      repeat={false}
-                      playInBackground={false}
-                      ignoreSilentSwitch="ignore"
-                    />
-                  </View>
-                ) : (
-                  <Image
-                    source={{ uri: buildImageUrl(url) || 'https://via.placeholder.com/400' }}
-                    style={styles.slideImage}
-                    resizeMode="cover"
-                    onError={(e) => {
-                      console.error(`Failed to load image ${url}:`, e.nativeEvent.error);
-                    }}
-                  />
-                )}
-              </View>
-            ))}
-          </Swiper>
+          <MediaCarousel
+            urls={post.imageUrls}
+            width={width}
+            height={width}
+          />
         </View>
       )}
 
       {/* Post Content */}
       <View style={styles.contentContainer}>
         <Text style={styles.content}>{post.content}</Text>
+        {!!post.locationName && (
+          <View style={styles.locationCard}>
+            <View style={styles.locationHeader}>
+              <Icon name="location" size={18} color="#6C8EBF" />
+              <Text style={styles.locationName}>{post.locationName}</Text>
+            </View>
+            {!!post.locationAddress && (
+              <Text style={styles.locationAddress}>{post.locationAddress}</Text>
+            )}
+          </View>
+        )}
         
         <View style={styles.statsContainer}>
           <TouchableOpacity style={styles.statItem} onPress={handleLike}>
@@ -370,8 +354,11 @@ const DetailScreen = ({ route, navigation }) => {
           data={comments}
           renderItem={({ item }) => (
             <View style={styles.commentItem}>
-              <Image
-                source={{ uri: item.userAvatarUrl || 'https://i.pravatar.cc/150' }}
+              <UserAvatar
+                avatarUrl={item.userAvatarUrl}
+                name={item.displayName || item.username}
+                username={item.username}
+                size={36}
                 style={styles.commentAvatar}
               />
               <View style={styles.commentContent}>
@@ -498,27 +485,6 @@ const styles = StyleSheet.create({
     height: width,
     backgroundColor: 'black',
   },
-  swiper: {
-    height: width,
-  },
-  slide: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  slideImage: {
-    width: '100%',
-    height: '100%',
-  },
-  slideVideo: {
-    width: '100%',
-    height: '100%',
-  },
-  videoSlide: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#000000',
-  },
   contentContainer: {
     padding: 15,
     backgroundColor: 'white',
@@ -530,6 +496,31 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: '#212529',
     marginBottom: 15,
+  },
+  locationCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+  },
+  locationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  locationName: {
+    marginLeft: 8,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#212529',
+    flex: 1,
+  },
+  locationAddress: {
+    marginTop: 6,
+    fontSize: 13,
+    color: '#6C757D',
+    lineHeight: 18,
   },
   statsContainer: {
     flexDirection: 'row',

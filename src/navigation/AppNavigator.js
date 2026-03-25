@@ -3,6 +3,7 @@ import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Icon from 'react-native-vector-icons/Ionicons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Screens (to be implemented)
 import HomeScreen from '../screens/HomeScreen';
@@ -12,6 +13,9 @@ import RegisterScreen from '../screens/RegisterScreen';
 import CreatePostScreen from '../screens/CreatePostScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
+import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
+import PlacePickerScreen from '../screens/PlacePickerScreen';
+import SearchScreen from '../screens/SearchScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -27,6 +31,14 @@ const navigationTheme = {
     text: '#212529',
   },
 };
+
+const TabBarIcon = ({ routeName, focused, color, size }) => (
+  <Icon name={getTabIconName(routeName, focused)} size={size} color={color} />
+);
+
+const createHomeTabIconRenderer = (routeName) => ({ focused, color, size }) => (
+  <TabBarIcon routeName={routeName} focused={focused} color={color} size={size} />
+);
 
 const getTabIconName = (routeName, focused) => {
   if (routeName === 'Home') {
@@ -44,23 +56,26 @@ const getTabIconName = (routeName, focused) => {
   return focused ? 'person' : 'person-outline';
 };
 
-const homeTabScreenOptions = ({ route }) => ({
-  tabBarIcon: ({ focused, color, size }) => (
-    <Icon name={getTabIconName(route.name, focused)} size={size} color={color} />
-  ),
-  tabBarActiveTintColor: '#6C8EBF',
-  tabBarInactiveTintColor: 'gray',
-  tabBarStyle: {
-    backgroundColor: '#FFFFFF',
-    borderTopColor: '#E9ECEF',
-  },
-  sceneStyle: {
-    backgroundColor: '#F8F9FA',
-  },
-  headerShown: false,
-});
-
 function HomeTabs() {
+  const insets = useSafeAreaInsets();
+
+  const homeTabScreenOptions = ({ route }) => ({
+    tabBarIcon: createHomeTabIconRenderer(route.name),
+    tabBarActiveTintColor: '#6C8EBF',
+    tabBarInactiveTintColor: 'gray',
+    tabBarStyle: {
+      backgroundColor: '#FFFFFF',
+      borderTopColor: '#E9ECEF',
+      paddingBottom: Math.max(insets.bottom, 8),
+      height: 58 + insets.bottom,
+    },
+    sceneStyle: {
+      backgroundColor: '#F8F9FA',
+      paddingTop: insets.top,
+    },
+    headerShown: false,
+  });
+
   return (
     <Tab.Navigator screenOptions={homeTabScreenOptions}>
       <Tab.Screen 
@@ -89,11 +104,14 @@ function HomeTabs() {
 }
 
 export default function AppNavigator() {
+  const insets = useSafeAreaInsets();
+
   return (
     <NavigationContainer theme={navigationTheme}>
       <Stack.Navigator
         initialRouteName="HomeTabs"
         screenOptions={{
+          headerStatusBarHeight: insets.top,
           headerStyle: {
             backgroundColor: '#FFFFFF',
           },
@@ -109,8 +127,17 @@ export default function AppNavigator() {
       >
         <Stack.Screen 
           name="HomeTabs" 
-          component={HomeTabs} 
+          component={HomeTabs}
           options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="Search"
+          component={SearchScreen}
+          options={{
+            title: '搜索帖子',
+            headerBackTitle: '返回',
+            headerBackTitleVisible: true,
+          }}
         />
         <Stack.Screen 
           name="Detail" 
@@ -144,6 +171,24 @@ export default function AppNavigator() {
           component={EditProfileScreen}
           options={{
             title: '编辑资料',
+            headerBackTitle: '返回',
+            headerBackTitleVisible: true
+          }}
+        />
+        <Stack.Screen
+          name="ForgotPassword"
+          component={ForgotPasswordScreen}
+          options={{
+            title: '找回密码',
+            headerBackTitle: '返回',
+            headerBackTitleVisible: true
+          }}
+        />
+        <Stack.Screen
+          name="PlacePicker"
+          component={PlacePickerScreen}
+          options={{
+            title: '选择地点',
             headerBackTitle: '返回',
             headerBackTitleVisible: true
           }}
