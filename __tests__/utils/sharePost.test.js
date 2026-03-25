@@ -32,7 +32,7 @@ describe('sharePost', () => {
       },
     }));
 
-    const Share = require('react-native-share');
+    const Share = jest.requireMock('react-native-share');
     const { sharePost } = require('../../src/utils/sharePost');
 
     await sharePost(post, 'system');
@@ -56,7 +56,7 @@ describe('sharePost', () => {
       },
     }));
 
-    const WeChat = require('react-native-wechat-lib');
+    const WeChat = jest.requireMock('react-native-wechat-lib');
     const { sharePost } = require('../../src/utils/sharePost');
 
     await sharePost(post, 'wechat');
