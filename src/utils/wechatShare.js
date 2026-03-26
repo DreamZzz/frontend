@@ -25,21 +25,21 @@ export const getWechatShareStatus = () => {
   if (!appId) {
     return {
       available: false,
-      reason: '当前未配置微信 AppID，请先在运行环境中补充 `APP_SHARE_WECHAT_APP_ID`。',
+      reason: '当前版本暂未启用微信直达分享。',
     };
   }
 
   if (Platform.OS === 'ios' && !universalLink) {
     return {
       available: false,
-      reason: '当前未配置微信 Universal Link，请先在运行环境中补充 `APP_SHARE_WECHAT_UNIVERSAL_LINK`。',
+      reason: '当前版本暂未启用微信直达分享。',
     };
   }
 
   if (!isWechatModuleReady()) {
     return {
       available: false,
-      reason: '微信分享 SDK 不可用，请确认原生依赖已正确安装。',
+      reason: '当前设备暂不支持微信直达分享。',
     };
   }
 
@@ -64,11 +64,6 @@ const ensureWechatRegistered = async () => {
   }
 
   registerPromise = (async () => {
-    const installedResult = await isInstalled();
-    if (!installedResult?.installed) {
-      throw createWechatShareError('WECHAT_NOT_INSTALLED', '当前设备未安装微信，请先安装微信后再试。');
-    }
-
     const { appId, universalLink } = support;
 
     try {
@@ -83,6 +78,11 @@ const ensureWechatRegistered = async () => {
         '微信 SDK 注册失败，请检查 AppID、Universal Link 和原生配置。',
         cause
       );
+    }
+
+    const installedResult = await isInstalled();
+    if (!installedResult?.installed) {
+      throw createWechatShareError('WECHAT_NOT_INSTALLED', '当前设备未安装微信，请先安装微信后再试。');
     }
 
     return true;

@@ -24,14 +24,14 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>weixin</string>
 		<string>weixinULAPI</string>
 		<string>wechat</string>
 	</array>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
@@ -54,29 +54,29 @@
 			</dict>
 			<key>test-ai-redbook.oss-cn-beijing.aliyuncs.com</key>
 			<dict>
-				<key>NSIncludesSubdomains</key>
-				<true/>
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>
 				<false/>
 				<key>NSExceptionRequiresForwardSecrecy</key>
 				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
 			</dict>
 		</dict>
 	</dict>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Access to photos is needed to post images</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Camera access is needed to take photos</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string></string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Microphone access is needed to record videos</string>
-	<key>WechatAppID</key>
-	<string>$(APP_SHARE_WECHAT_APP_ID)</string>
-	<key>WechatUniversalLink</key>
-	<string>$(APP_SHARE_WECHAT_UNIVERSAL_LINK)</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Access to photos is needed to post images</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Ionicons.ttf</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>
@@ -96,9 +96,9 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
-	<key>UIAppFonts</key>
-	<array>
-		<string>Ionicons.ttf</string>
-	</array>
+	<key>WechatAppID</key>
+	<string></string>
+	<key>WechatUniversalLink</key>
+	<string></string>
 </dict>
 </plist>

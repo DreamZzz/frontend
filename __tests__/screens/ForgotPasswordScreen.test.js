@@ -18,12 +18,14 @@ jest.mock('@react-navigation/elements', () => ({
 describe('ForgotPasswordScreen', () => {
   beforeEach(() => {
     jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
     authAPI.forgotPassword.mockReset();
     authAPI.resetPassword.mockReset();
   });
 
   afterEach(() => {
     Alert.alert.mockRestore();
+    console.error.mockRestore();
   });
 
   const pressButtonByLabel = async (renderer, label) => {
@@ -126,5 +128,41 @@ describe('ForgotPasswordScreen', () => {
     await pressButtonByLabel(renderer, '发送邮箱验证码');
 
     expect(Alert.alert).toHaveBeenCalledWith('发送失败', '邮箱不存在');
+  });
+
+  it('shows backend error messages when resetting password fails', async () => {
+    authAPI.forgotPassword.mockResolvedValue({
+      data: {
+        message: '验证码已发送到邮箱',
+      },
+    });
+    authAPI.resetPassword.mockRejectedValue({
+      response: {
+        data: {
+          message: '验证码已过期',
+        },
+      },
+    });
+
+    let renderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(<ForgotPasswordScreen navigation={{ goBack: jest.fn() }} />);
+    });
+
+    const emailInput = renderer.root.findByProps({ placeholder: '请输入注册邮箱' });
+    const codeInput = renderer.root.findByProps({ placeholder: '请输入邮箱中的验证码' });
+    const newPasswordInput = renderer.root.findByProps({ placeholder: '请输入新密码' });
+    const confirmPasswordInput = renderer.root.findByProps({ placeholder: '请再次输入新密码' });
+
+    await ReactTestRenderer.act(async () => {
+      emailInput.props.onChangeText('test@example.com');
+      codeInput.props.onChangeText('123456');
+      newPasswordInput.props.onChangeText('new-password');
+      confirmPasswordInput.props.onChangeText('new-password');
+    });
+
+    await pressButtonByLabel(renderer, '重置密码');
+
+    expect(Alert.alert).toHaveBeenCalledWith('重置失败', '验证码已过期');
   });
 });

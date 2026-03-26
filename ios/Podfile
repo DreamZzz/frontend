@@ -84,5 +84,25 @@ target 'frontend' do
         build_configuration.build_settings['HEADER_SEARCH_PATHS'] = (header_search_paths + extra_header_paths).uniq
       end
     end
+
+    # fmt 11.0.2 currently trips a consteval code path under Xcode 26.4's
+    # clang when it compiles the pod source file itself. Keep the compile-time
+    # format checking for app code, but downgrade the pod target to the runtime
+    # path so the native build remains stable.
+    installer.pods_project.targets.each do |target|
+      next unless target.name == 'fmt'
+
+      target.build_configurations.each do |build_configuration|
+        build_configuration.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
+        definitions = build_configuration.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || '$(inherited)'
+        definitions = [definitions] unless definitions.is_a?(Array)
+
+        unless definitions.any? { |definition| definition.include?('FMT_USE_CONSTEVAL=0') }
+          definitions << 'FMT_USE_CONSTEVAL=0'
+        end
+
+        build_configuration.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = definitions.uniq
+      end
+    end
   end
 end

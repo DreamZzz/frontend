@@ -60,6 +60,10 @@ PROXY_BIND_HOST="127.0.0.1"
 CONFIG_PLATFORM="ios"
 TARGET_DEVICE_NAME=""
 IOS_APP_BUNDLE_ID="com.qiang.socialapp.frontend"
+DEFAULT_REMOTE_API_BASE_URL="${APP_REMOTE_API_BASE_URL:-http://101.37.209.236}"
+DEFAULT_REMOTE_API_BASE_URL="${DEFAULT_REMOTE_API_BASE_URL%/}"
+DEFAULT_REMOTE_PROXY_TARGET="${APP_REMOTE_PROXY_TARGET:-$DEFAULT_REMOTE_API_BASE_URL}"
+DEFAULT_REMOTE_PROXY_TARGET="${DEFAULT_REMOTE_PROXY_TARGET%/}"
 
 list_connected_ios_devices() {
     xcrun xcdevice list 2>/dev/null | node -e '
@@ -222,13 +226,13 @@ resolve_runtime_config() {
         remote)
             if [ "$CONFIG_PLATFORM" = "ios" ]; then
                 API_BASE_URL="http://127.0.0.1:18080"
-                PROXY_TARGET="http://101.37.209.236:80"
+                PROXY_TARGET="$DEFAULT_REMOTE_PROXY_TARGET"
             elif [ "$CONFIG_PLATFORM" = "device" ]; then
-                API_BASE_URL="http://101.37.209.236"
+                API_BASE_URL="$DEFAULT_REMOTE_API_BASE_URL"
                 PROXY_TARGET=""
             else
-                API_BASE_URL="http://101.37.209.236"
-                PROXY_TARGET="http://101.37.209.236:80"
+                API_BASE_URL="$DEFAULT_REMOTE_API_BASE_URL"
+                PROXY_TARGET="$DEFAULT_REMOTE_PROXY_TARGET"
             fi
             ;;
         *)
@@ -244,6 +248,78 @@ write_runtime_config() {
     node scripts/write-runtime-config.js "$APP_ENV" "$API_BASE_URL" "$PROXY_TARGET"
     print_info "当前环境: $APP_ENV"
     print_info "API地址: $API_BASE_URL"
+    if [ "$APP_ENV" = "remote" ]; then
+        if [ -n "$PROXY_TARGET" ]; then
+            print_info "远端上游: $PROXY_TARGET"
+        else
+            print_info "远端上游: $API_BASE_URL"
+        fi
+    fi
+}
+
+set_or_add_plist_string() {
+    local plist_path="$1"
+    local key="$2"
+    local value="$3"
+    local plistbuddy="/usr/libexec/PlistBuddy"
+
+    if $plistbuddy -c "Set :$key $value" "$plist_path" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    $plistbuddy -c "Add :$key string $value" "$plist_path"
+}
+
+sync_ios_wechat_config() {
+    if [ "$(uname)" != "Darwin" ]; then
+        return 0
+    fi
+
+    local plist_path="ios/frontend/Info.plist"
+    local entitlements_path="ios/frontend/frontend.entitlements"
+    local plistbuddy="/usr/libexec/PlistBuddy"
+    local wechat_app_id="${APP_SHARE_WECHAT_APP_ID:-}"
+    local wechat_universal_link="${APP_SHARE_WECHAT_UNIVERSAL_LINK:-}"
+    local universal_link_host=""
+
+    if [ ! -x "$plistbuddy" ] || [ ! -f "$plist_path" ]; then
+        return 0
+    fi
+
+    set_or_add_plist_string "$plist_path" "WechatAppID" "$wechat_app_id"
+    set_or_add_plist_string "$plist_path" "WechatUniversalLink" "$wechat_universal_link"
+
+    $plistbuddy -c "Delete :CFBundleURLTypes" "$plist_path" >/dev/null 2>&1 || true
+
+    if [ -n "$wechat_app_id" ]; then
+        $plistbuddy -c "Add :CFBundleURLTypes array" "$plist_path"
+        $plistbuddy -c "Add :CFBundleURLTypes:0 dict" "$plist_path"
+        $plistbuddy -c "Add :CFBundleURLTypes:0:CFBundleTypeRole string Editor" "$plist_path"
+        $plistbuddy -c "Add :CFBundleURLTypes:0:CFBundleURLName string wechat" "$plist_path"
+        $plistbuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$plist_path"
+        $plistbuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string $wechat_app_id" "$plist_path"
+    else
+        print_warning "未配置 APP_SHARE_WECHAT_APP_ID，微信好友/朋友圈分享将保持不可用，系统分享不受影响"
+    fi
+
+    if [ -n "$wechat_universal_link" ]; then
+        universal_link_host=$(printf '%s' "$wechat_universal_link" | sed -nE 's#^https?://([^/]+)/?.*$#\1#p')
+    fi
+
+    if [ -f "$entitlements_path" ]; then
+        $plistbuddy -c "Delete :com.apple.developer.associated-domains" "$entitlements_path" >/dev/null 2>&1 || true
+
+        if [ -n "$universal_link_host" ]; then
+            $plistbuddy -c "Add :com.apple.developer.associated-domains array" "$entitlements_path"
+            $plistbuddy -c "Add :com.apple.developer.associated-domains:0 string applinks:$universal_link_host" "$entitlements_path"
+        fi
+    fi
+
+    if [ -z "$wechat_universal_link" ]; then
+        print_warning "未配置 APP_SHARE_WECHAT_UNIVERSAL_LINK，iOS 微信直分享将保持不可用，系统分享不受影响"
+    elif [ -z "$universal_link_host" ]; then
+        print_warning "APP_SHARE_WECHAT_UNIVERSAL_LINK 不是合法的 https URL，无法写入 Associated Domains"
+    fi
 }
 
 stop_existing_proxy() {
@@ -470,6 +546,7 @@ start_ios() {
     
     print_info "启动iOS开发环境..."
     write_runtime_config
+    sync_ios_wechat_config
     start_api_proxy_background
     
     # 检查Xcode
@@ -504,6 +581,7 @@ start_device() {
 
     print_info "启动iPhone真机开发环境..."
     write_runtime_config
+    sync_ios_wechat_config
 
     if ! xcodebuild -version >/dev/null 2>&1; then
         print_error "Xcode未安装或未配置"

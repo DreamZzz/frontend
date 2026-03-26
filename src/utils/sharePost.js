@@ -1,5 +1,23 @@
 import Share from 'react-native-share';
-import { sharePostToWechat } from './wechatShare';
+import { getWechatShareStatus, sharePostToWechat } from './wechatShare';
+
+export const SYSTEM_SHARE_FALLBACK_HINT = '你仍然可以使用系统分享发送到微信、朋友圈或其他应用。';
+
+export const getShareSheetOptions = () => {
+  const wechatStatus = getWechatShareStatus();
+
+  if (wechatStatus.available) {
+    return {
+      message: '请选择分享方式',
+      targets: ['system', 'wechat', 'moments'],
+    };
+  }
+
+  return {
+    message: `${wechatStatus.reason}\n\n${SYSTEM_SHARE_FALLBACK_HINT}`,
+    targets: ['system'],
+  };
+};
 
 const buildSystemSharePayload = (post) => {
   const headline = post?.content?.trim() || '分享一条帖子';
@@ -27,4 +45,3 @@ export const sharePost = async (post, target = 'system') => {
 
   throw new Error(`未知的分享目标: ${target}`);
 };
-

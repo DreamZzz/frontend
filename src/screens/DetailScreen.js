@@ -22,8 +22,7 @@ import { useAuth } from '../context/AuthContext';
 import { commentAPI, likeAPI, postAPI } from '../services/api';
 import UserAvatar from '../components/UserAvatar';
 import MediaCarousel from '../components/MediaCarousel';
-import { sharePost } from '../utils/sharePost';
-import { getWechatShareStatus } from '../utils/wechatShare';
+import { getShareSheetOptions, sharePost, SYSTEM_SHARE_FALLBACK_HINT } from '../utils/sharePost';
 
 const { width } = Dimensions.get('window');
 
@@ -234,7 +233,7 @@ const DetailScreen = ({ route, navigation }) => {
       console.error('Error sharing post:', error);
 
       if (error.code === 'WECHAT_UNAVAILABLE' || error.code === 'WECHAT_NOT_INSTALLED') {
-        Alert.alert('微信分享不可用', error.message);
+        Alert.alert('微信直达分享不可用', `${error.message}\n\n${SYSTEM_SHARE_FALLBACK_HINT}`);
         return;
       }
 
@@ -243,22 +242,29 @@ const DetailScreen = ({ route, navigation }) => {
   };
 
   const handleSharePress = async () => {
-    const wechatStatus = getWechatShareStatus();
-    const statusMessage = wechatStatus.available
-      ? '请选择分享方式'
-      : `${wechatStatus.reason}\n\n系统分享仍然可用。`;
+    const shareSheetOptions = getShareSheetOptions();
+    const isSystemShareFallback =
+      shareSheetOptions.targets.length === 1 && shareSheetOptions.targets[0] === 'system';
+    const actions = shareSheetOptions.targets.map((target) => {
+      if (target === 'wechat') {
+        return { text: '微信好友', onPress: () => handleShareTarget('wechat') };
+      }
 
-    const actions = [
-      { text: '系统分享', onPress: () => handleShareTarget('system') },
-      { text: '微信好友', onPress: () => handleShareTarget('wechat') },
-      { text: '朋友圈', onPress: () => handleShareTarget('moments') },
-    ];
+      if (target === 'moments') {
+        return { text: '朋友圈', onPress: () => handleShareTarget('moments') };
+      }
+
+      return {
+        text: isSystemShareFallback ? '继续使用系统分享' : '系统分享',
+        onPress: () => handleShareTarget('system'),
+      };
+    });
 
     if (Platform.OS === 'ios') {
       actions.push({ text: '取消', style: 'cancel' });
     }
 
-    Alert.alert('分享帖子', statusMessage, actions);
+    Alert.alert('分享帖子', shareSheetOptions.message, actions);
   };
 
   if (loading || !post) {

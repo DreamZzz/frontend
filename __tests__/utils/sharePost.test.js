@@ -2,11 +2,9 @@ jest.mock('react-native-share', () => ({
   open: jest.fn(async () => undefined),
 }));
 
-jest.mock('react-native-wechat-lib', () => ({
-  registerApp: jest.fn(async () => true),
-  isWXAppInstalled: jest.fn(async () => true),
-  shareText: jest.fn(async () => undefined),
-  shareImage: jest.fn(async () => undefined),
+jest.mock('../../src/utils/wechatShare', () => ({
+  getWechatShareStatus: jest.fn(() => ({ available: true })),
+  sharePostToWechat: jest.fn(async () => undefined),
 }));
 
 describe('sharePost', () => {
@@ -48,42 +46,49 @@ describe('sharePost', () => {
   });
 
   it('shares to WeChat when the SDK and runtime config are ready', async () => {
-    jest.doMock('../../src/config/runtime', () => ({
-      __esModule: true,
-      default: {
-        wechatAppId: 'wx123456',
-        wechatUniversalLink: 'https://example.com/wechat/',
-      },
-    }));
-
-    const WeChat = jest.requireMock('react-native-wechat-lib');
+    const wechatShare = jest.requireMock('../../src/utils/wechatShare');
     const { sharePost } = require('../../src/utils/sharePost');
 
     await sharePost(post, 'wechat');
 
-    expect(WeChat.registerApp).toHaveBeenCalledWith('wx123456', 'https://example.com/wechat/');
-    expect(WeChat.isWXAppInstalled).toHaveBeenCalled();
-    expect(WeChat.shareImage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        imageUrl: 'https://example.com/post.jpg',
-        scene: 0,
-      })
-    );
+    expect(wechatShare.sharePostToWechat).toHaveBeenCalledWith(post, 'wechat');
   });
 
-  it('throws a clear error when WeChat config is missing', async () => {
-    jest.doMock('../../src/config/runtime', () => ({
-      __esModule: true,
-      default: {
-        wechatAppId: '',
-        wechatUniversalLink: '',
-      },
-    }));
-
+  it('routes timeline shares to the WeChat moments scene', async () => {
+    const wechatShare = jest.requireMock('../../src/utils/wechatShare');
     const { sharePost } = require('../../src/utils/sharePost');
 
-    await expect(sharePost(post, 'wechat')).rejects.toMatchObject({
-      code: 'WECHAT_UNAVAILABLE',
+    await sharePost(post, 'moments');
+
+    expect(wechatShare.sharePostToWechat).toHaveBeenCalledWith(post, 'moments');
+  });
+
+  it('hides direct WeChat actions from the share sheet when WeChat config is unavailable', async () => {
+    const wechatShare = jest.requireMock('../../src/utils/wechatShare');
+    wechatShare.getWechatShareStatus.mockReturnValue({
+      available: false,
+      reason: '当前版本暂未启用微信直达分享。',
+    });
+
+    const { getShareSheetOptions, SYSTEM_SHARE_FALLBACK_HINT } = require('../../src/utils/sharePost');
+
+    expect(getShareSheetOptions()).toEqual({
+      message: `当前版本暂未启用微信直达分享。\n\n${SYSTEM_SHARE_FALLBACK_HINT}`,
+      targets: ['system'],
+    });
+  });
+
+  it('keeps direct WeChat actions when the runtime config is ready', async () => {
+    const wechatShare = jest.requireMock('../../src/utils/wechatShare');
+    wechatShare.getWechatShareStatus.mockReturnValue({
+      available: true,
+    });
+
+    const { getShareSheetOptions } = require('../../src/utils/sharePost');
+
+    expect(getShareSheetOptions()).toEqual({
+      message: '请选择分享方式',
+      targets: ['system', 'wechat', 'moments'],
     });
   });
 });

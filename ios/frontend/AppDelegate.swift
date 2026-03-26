@@ -2,8 +2,8 @@ import UIKit
 import React
 import React_RCTAppDelegate
 import ReactAppDependencyProvider
-#if canImport(WechatOpenSDK)
-import WechatOpenSDK
+#if canImport(HeroWechat)
+import HeroWechat
 #endif
 
 @main
@@ -32,8 +32,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
       launchOptions: launchOptions
     )
 
-    registerWechatSDKIfNeeded()
-
     return true
   }
 
@@ -42,8 +40,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     open url: URL,
     options: [UIApplication.OpenURLOptionsKey: Any] = [:]
   ) -> Bool {
-#if canImport(WechatOpenSDK)
-    return WXApi.handleOpen(url, delegate: nil)
+#if canImport(HeroWechat)
+    // HeroWechat owns WeChat callback routing; AppDelegate only forwards the
+    // URL so the bridge module can emit the correct JS-side event.
+    return RNTWechat.handleOpenURL(application, openURL: url, options: options)
 #else
     return false
 #endif
@@ -54,39 +54,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     continue userActivity: NSUserActivity,
     restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
   ) -> Bool {
-#if canImport(WechatOpenSDK)
-    return WXApi.handleOpenUniversalLink(userActivity, delegate: nil)
+#if canImport(HeroWechat)
+    return RNTWechat.handleOpenUniversalLink(userActivity)
 #else
     return false
 #endif
-  }
-
-  private func registerWechatSDKIfNeeded() {
-#if canImport(WechatOpenSDK)
-    let appId = resolvedInfoString(forKey: "WechatAppID")
-    guard !appId.isEmpty else {
-      return
-    }
-
-    let universalLink = resolvedInfoString(forKey: "WechatUniversalLink")
-
-    if universalLink.isEmpty {
-      _ = WXApi.registerApp(appId)
-    } else {
-      _ = WXApi.registerApp(appId, universalLink: universalLink)
-    }
-#endif
-  }
-
-  private func resolvedInfoString(forKey key: String) -> String {
-    let value = (Bundle.main.object(forInfoDictionaryKey: key) as? String)?
-      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-    guard !value.isEmpty, !value.hasPrefix("$(") else {
-      return ""
-    }
-
-    return value
   }
 }
 
@@ -113,7 +85,3 @@ class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
 #endif
   }
 }
-
-#if canImport(WechatOpenSDK)
-extension AppDelegate: WXApiDelegate {}
-#endif
